@@ -14,10 +14,11 @@
         input { flex: 1; background: #000; border: 1px solid #00ff41; color: #00ff41; padding: 12px; outline: none; }
         button { background: #00ff41; color: #000; border: none; padding: 12px 24px; cursor: pointer; font-weight: bold; }
         .status { font-size: 0.8em; color: #555; text-align: center; padding: 5px; }
+        .thinking { color: #555; font-style: italic; }
     </style>
 </head>
 <body>
-    <div class="status">SENTINEL-CORE V1.0 | ENCRYPTION ACTIVE</div>
+    <div class="status">SENTINEL-CORE V1.0 | ENCRYPTION ACTIVE | GROQ INFERENCE ENGINE</div>
     <div id="chat-window">
         <div class="message sentinel">🛡️ SENTINEL ONLINE. Waiting for command, Commander.</div>
     </div>
@@ -27,33 +28,50 @@
     </div>
 
     <script>
+        // ── Live Render backend ──────────────────────────────────────────
+        const BACKEND = 'https://sentinel-core-mlb4.onrender.com';
+
         async function sendMessage() {
             const input = document.getElementById('user-input');
             const chatWindow = document.getElementById('chat-window');
             const message = input.value.trim();
             if (!message) return;
 
-            // Display User Message
+            // Show user message
             chatWindow.innerHTML += `<div class="message"><span class="user">COMMANDER:</span> ${message}</div>`;
             input.value = '';
 
+            // Show thinking indicator
+            const thinkingId = 'thinking-' + Date.now();
+            chatWindow.innerHTML += `<div class="message thinking" id="${thinkingId}">🛡️ SENTINEL: Processing command...</div>`;
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+
             try {
-                // Change this URL to your live server URL (e.g., from Replit or Render)
-                const response = await fetch('/chat', {
+                const response = await fetch(`${BACKEND}/chat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: message })
                 });
+
                 const data = await response.json();
+
+                // Replace thinking indicator with real response
+                const thinkingEl = document.getElementById(thinkingId);
+                if (thinkingEl) thinkingEl.remove();
+
                 chatWindow.innerHTML += `<div class="message sentinel">🛡️ SENTINEL: ${data.response}</div>`;
                 chatWindow.scrollTop = chatWindow.scrollHeight;
+
             } catch (err) {
-                chatWindow.innerHTML += `<div class="message sentinel" style="color: red;">⚠️ CONNECTION ERROR: Ensure the Brain is running.</div>`;
+                const thinkingEl = document.getElementById(thinkingId);
+                if (thinkingEl) thinkingEl.remove();
+                chatWindow.innerHTML += `<div class="message sentinel" style="color: red;">⚠️ CONNECTION ERROR: Backend unreachable. Check Render status.</div>`;
+                chatWindow.scrollTop = chatWindow.scrollHeight;
             }
         }
-        
-        // Allow Enter key to send
-        document.getElementById('user-input').addEventListener('keypress', function (e) {
+
+        // Enter key to send
+        document.getElementById('user-input').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') sendMessage();
         });
     </script>
