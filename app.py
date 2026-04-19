@@ -4,38 +4,68 @@ from groq import Groq
 
 app = Flask(__name__)
 
-# Use the Environment Variable we just set up
+# Groq client
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
 
 def load_vault():
     vault_content = ""
-    # Points to the vault folder inside your sentinel_agi folder
-    vault_path = "./sentinel_agi/vault"
+    # Vault is at the ROOT of the repo on Render
+    vault_path = "./vault"
     if not os.path.exists(vault_path):
-        return "Vault path not found."
-    
+        return "No vault data found."
     for root, dirs, files in os.walk(vault_path):
         for file in files:
-            with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
-                vault_content += f"\n--- {file} ---\n" + f.read()
-    return vault_content
+            if file.endswith((".txt", ".json", ".md")):
+                try:
+                    with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                        vault_content += f"\n--- {file} ---\n" + f.read()
+                except Exception:
+                    pass
+    return vault_content if vault_content else "Vault is empty."
 
-@app.route('/chat', methods=['POST'])
+
+@app.route('/')
+def index():
+    return "SENTINEL ONLINE", 200
+
+
+@app.route('/chat', methods=['POST', 'OPTIONS'])
 def chat():
-    user_msg = request.json.get('message')
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        return response
+
+    user_msg = request.json.get('message', '')
     context = load_vault()
-    
-    # Layer 5: The Prompt Stack
+
     completion = client.chat.completions.create(
         model="llama3-8b-8192",
         messages=[
-            {"role": "system", "content": "You are Voyce's AGI clone. Be direct and veteran-led. Use the vault data."},
-            {"role": "user", "content": f"VAULT:\n{context}\n\nCOMMAND: {user_msg}"}
+            {
+                "role": "system",
+                "content": (
+                    "You are Voyce's personal AGI — direct, veteran-led, and strategic. "
+                    "Use the vault data to personalize every response. "
+                    "Be concise and mission-focused."
+                )
+            },
+            {
+                "role": "user",
+                "content": f"VAULT:\n{context}\n\nCOMMAND: {user_msg}"
+            }
         ]
     )
-    return jsonify({"response": completion.choices[0].message.content})
+
+    response = jsonify({"response": completion.choices[0].message.content})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
+
 
 if __name__ == "__main__":
-    # Render's dynamic port assignment
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
