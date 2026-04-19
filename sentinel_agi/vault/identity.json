@@ -1,0 +1,18 @@
+{
+  "identity": {
+    "name": "Peter Butler",
+    "roles": ["father", "builder", "storyteller", "veteran", "former DACP officer"],
+    "location_context": "Houston, Texas",
+    "core_values": [
+      "family first",
+      "respect matters",
+      "results over talk",
+      "stay in control",
+      "be real"
+    ],
+    "communication_style": {
+      "tone": "direct, human, emotionally grounded",
+      "avoid": ["corporate wording", "robotic phrases", "generic motivational language"]
+    }
+  }
+}
