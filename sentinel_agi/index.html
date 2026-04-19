@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BAIFI SENTINEL CORE</title>
+    <style>
+        body { background: #0a0a0a; color: #00ff41; font-family: 'Courier New', Courier, monospace; display: flex; flex-direction: column; height: 100vh; margin: 0; }
+        #chat-window { flex: 1; overflow-y: auto; padding: 20px; border-bottom: 1px solid #333; }
+        .message { margin-bottom: 15px; line-height: 1.4; }
+        .user { color: #fff; font-weight: bold; }
+        .sentinel { color: #00ff41; }
+        #input-area { padding: 20px; display: flex; gap: 10px; background: #111; }
+        input { flex: 1; background: #000; border: 1px solid #00ff41; color: #00ff41; padding: 12px; outline: none; }
+        button { background: #00ff41; color: #000; border: none; padding: 12px 24px; cursor: pointer; font-weight: bold; }
+        .status { font-size: 0.8em; color: #555; text-align: center; padding: 5px; }
+    </style>
+</head>
+<body>
+    <div class="status">SENTINEL-CORE V1.0 | ENCRYPTION ACTIVE</div>
+    <div id="chat-window">
+        <div class="message sentinel">🛡️ SENTINEL ONLINE. Waiting for command, Commander.</div>
+    </div>
+    <div id="input-area">
+        <input type="text" id="user-input" placeholder="Enter mission command..." autocomplete="off">
+        <button onclick="sendMessage()">SEND</button>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById('user-input');
+            const chatWindow = document.getElementById('chat-window');
+            const message = input.value.trim();
+            if (!message) return;
+
+            // Display User Message
+            chatWindow.innerHTML += `<div class="message"><span class="user">COMMANDER:</span> ${message}</div>`;
+            input.value = '';
+
+            try {
+                // Change this URL to your live server URL (e.g., from Replit or Render)
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                const data = await response.json();
+                chatWindow.innerHTML += `<div class="message sentinel">🛡️ SENTINEL: ${data.response}</div>`;
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            } catch (err) {
+                chatWindow.innerHTML += `<div class="message sentinel" style="color: red;">⚠️ CONNECTION ERROR: Ensure the Brain is running.</div>`;
+            }
+        }
+        
+        // Allow Enter key to send
+        document.getElementById('user-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
