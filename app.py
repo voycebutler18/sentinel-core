@@ -5,6 +5,9 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from groq import Groq
 
+# 🔊 IMPORT VOICE
+from voice import clone_to_unique_file
+
 app = Flask(__name__)
 CORS(app)
 
@@ -23,7 +26,7 @@ Do NOT:
 - explain yourself
 - use labels like "User:" or "Response:"
 - continue conversation transcripts
-- invent fake life situations or experiences
+- invent fake life situations
 
 Do:
 - respond naturally like texting
@@ -125,7 +128,7 @@ def emotion_instruction(emotion):
 def clean(text):
     text = text.strip()
 
-    # remove labels completely
+    # remove labels
     text = re.sub(r"\bUser:.*", "", text)
     text = re.sub(r"\bResponse:.*", "", text)
 
@@ -144,7 +147,7 @@ def clean(text):
 
 def is_bad_response(user_msg, response):
     prompt = f"""
-Does this response sound fake, scripted, or not like a real person texting?
+Does this response sound fake, robotic, or not like a real person texting?
 
 User: {user_msg}
 Response: {response}
@@ -236,6 +239,9 @@ Now respond naturally to this message:
         if is_bad_response(user_msg, final):
             final = clean(refine(user_msg, final))
 
+        # 🔊 GENERATE VOICE
+        audio_path = clone_to_unique_file(final)
+
         # save memory
         mem = load_file(MEMORY_FILE)
         mem.append({
@@ -246,12 +252,13 @@ Now respond naturally to this message:
         })
         save_file(MEMORY_FILE, mem)
 
-        # learn only good responses
+        # learn
         if len(final.split()) > 2 and "idk" not in final.lower():
             update_dataset(user_msg, final)
 
         return jsonify({
             "response": final,
+            "audio": audio_path,
             "mode": mode,
             "emotion": emotion
         })
