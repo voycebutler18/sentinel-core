@@ -15,6 +15,7 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 MEMORY_FILE = "memory.json"
 INTENT_FILE = "commander_intent.txt"
+RELAY_FILE = "relays.json"
 
 # SYSTEM BASE: Best friend first, always engaged, never avoidant
 SYSTEM_BASE = """You are the digital twin of Peter Butler (Voyce).
@@ -73,6 +74,61 @@ def clean(text):
     # Remove AI preambles and labels
     text = re.sub(r"(?i)^(peter|user|response|here is|sure|okay|twin|voyce)\s*[:\-]?\s*", "", text)
     return " ".join(text.split()).strip()
+
+# ── Relay System ─────────────────────────────────────────────────────────────
+
+# Maps name keywords to canonical targets
+RELAY_TARGETS = {
+    "devonn":    "devonn",
+    "evelynn":   "evelynn",
+    "armon":     "armon",
+    "arracelli": "arracelli",
+    "twins":     "twins",
+    "kids":      "kids",
+    "children":  "kids",
+}
+
+def detect_relay_target(msg):
+    """Return the first relay target found in the message, or None."""
+    msg_lower = msg.lower()
+    if "tell" not in msg_lower and "let" not in msg_lower and "remind" not in msg_lower:
+        return None
+    for keyword, target in RELAY_TARGETS.items():
+        if keyword in msg_lower:
+            return target
+    return None
+
+def save_relay(target, message):
+    """Append an undelivered relay to relays.json."""
+    relays = load_file(RELAY_FILE)
+    if not isinstance(relays, list):
+        relays = []
+    relays.append({
+        "target": target,
+        "message": message,
+        "delivered": False,
+        "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%I:%M %p on %A, %B %d, %Y")
+    })
+    save_file(RELAY_FILE, relays)
+
+def get_pending_relays(target=None):
+    """Return all undelivered relays, optionally filtered by target."""
+    relays = load_file(RELAY_FILE)
+    if not isinstance(relays, list):
+        return []
+    return [r for r in relays if not r.get("delivered") and (target is None or r["target"] in (target, "kids"))]
+
+def mark_relays_delivered(target):
+    """Mark matching relays as delivered."""
+    relays = load_file(RELAY_FILE)
+    if not isinstance(relays, list):
+        return
+    for r in relays:
+        if r["target"] in (target, "kids") and not r["delivered"]:
+            r["delivered"] = True
+    save_file(RELAY_FILE, relays)
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def analyze_scene(image_base64, user_msg):
     """
@@ -154,9 +210,23 @@ def chat():
 [MESSAGE]
 {user_msg or "(user sent an image)"}
 
-The current time is {current_time_str}. Use this for context.
+The current time is {current_time_str}. Use this for context.{relay_context}
 
 Reply as Peter. No labels. Keep it real."""
+
+        # --- Relay intercept: "tell/remind my kids/Devonn..." ---
+        relay_target = detect_relay_target(user_msg)
+        if relay_target:
+            save_relay(relay_target, user_msg)
+            target_label = relay_target if relay_target != "kids" else "the kids"
+            return jsonify({"response": f"got it, i'll let {target_label} know when i see them."})
+
+        # Inject any pending relays into the prompt if a kid is recognized on camera
+        pending = get_pending_relays()
+        relay_context = ""
+        if pending:
+            relay_lines = [f'- [{r["target"]}] {r["message"]}' for r in pending]
+            relay_context = "\n\n[PENDING RELAY MESSAGES — deliver these naturally if the right person is present]\n" + "\n".join(relay_lines)
 
         # --- Vision path: image included ---
         if image_data:
