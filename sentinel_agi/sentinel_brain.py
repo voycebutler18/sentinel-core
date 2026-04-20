@@ -18,8 +18,9 @@ SYSTEM_INSTRUCTION = (
     "NEVER act like a generic assistant. You ARE Peter Butler."
 )
 
+# FIXED: Removed the double 'model=' definition and updated to the stable 2.5 model
 model = genai.GenerativeModel(
-    model = genai.GenerativeModel('gemini-2.5-flash',
+    model_name='gemini-2.5-flash',
     system_instruction=SYSTEM_INSTRUCTION
 )
 
@@ -35,14 +36,20 @@ def load_vault():
     for root, dirs, files in os.walk(vault_path):
         for file in files:
             if file.endswith((".json", ".txt", ".md")):
-                with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
-                    vault_content += f"\n[MEMORANDUM: {file}]\n{f.read()}\n"
+                try:
+                    with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                        vault_content += f"\n[MEMORANDUM: {file}]\n{f.read()}\n"
+                except Exception:
+                    continue
     return vault_content
 
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
         data = request.json
+        if not data or 'message' not in data:
+            return jsonify({"response": "No command received."}), 400
+            
         user_msg = data.get('message')
         vault_data = load_vault()
         
@@ -52,8 +59,11 @@ def chat():
         response = model.generate_content(prompt)
         return jsonify({"response": response.text})
     except Exception as e:
+        # Prints actual error to Render logs for easier debugging
+        print(f"Error: {str(e)}")
         return jsonify({"response": f"System Alert: {str(e)}"}), 500
 
 if __name__ == "__main__":
+    # Dynamic port for Render deployment
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
