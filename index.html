@@ -534,12 +534,39 @@ function captureFrame() {
 
 function getVoice() {
   const voices = synth.getVoices();
-  const preferred = ['Google US English', 'Alex', 'Daniel', 'en-US'];
-  for (const p of preferred) {
-    const v = voices.find(v => v.name.includes(p) || v.lang === p);
+
+  // Priority list of known deep/male English voices across Chrome, Edge, Android, iPad
+  // Ordered best to acceptable — first match wins
+  const malePriority = [
+    'Google UK English Male',   // Chrome desktop — deep, natural
+    'Microsoft Guy Online',     // Edge — very natural male
+    'Microsoft David',          // Edge/Windows fallback
+    'Daniel',                   // macOS/iPad — British male, smooth
+    'Alex',                     // macOS — male US, decent quality
+    'Google US English Male',   // Android Chrome — good male voice
+    'en-US-Neural2-D',          // some Android builds
+    'en-GB-Standard-B',         // Chrome on some devices
+    'Fred',                     // macOS legacy male
+    'Ralph',                    // macOS legacy male
+    'Albert',                   // macOS legacy male
+  ];
+
+  for (const name of malePriority) {
+    const v = voices.find(v => v.name.includes(name));
     if (v) return v;
   }
-  return voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
+
+  // Last resort: pick any English male-sounding voice by filtering out known female names
+  const femaleNames = ['Samantha', 'Victoria', 'Susan', 'Karen', 'Moira',
+                       'Tessa', 'Fiona', 'Ava', 'Zoe', 'Nicky', 'Serena',
+                       'Google UK English Female', 'Google US English Female',
+                       'Microsoft Zira', 'Microsoft Hazel', 'Alice', 'Alva',
+                       'Amelie', 'Anna', 'Ellen'];
+  const fallback = voices.find(v =>
+    v.lang.startsWith('en') &&
+    !femaleNames.some(fn => v.name.includes(fn))
+  );
+  return fallback || voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
 }
 
 function setState(state) {
@@ -769,8 +796,8 @@ function speakText(text) {
     synth.cancel();
     const utt = new SpeechSynthesisUtterance(text);
     utt.voice = getVoice();
-    utt.rate = 0.92;
-    utt.pitch = 0.85;
+    utt.rate = 0.90;   // slightly slower = more deliberate, less rushed
+    utt.pitch = 0.75;  // lower pitch = deeper/more masculine
     utt.volume = 1;
     speaking = true;
     setState('speaking');
