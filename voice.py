@@ -13,9 +13,6 @@ STATIC_DIR.mkdir(exist_ok=True)
 VOICE_DIR = BASE_DIR / "voice"
 VOICE_DIR.mkdir(exist_ok=True)
 
-VOICE_CACHE_DIR = BASE_DIR / "voice_cache"
-VOICE_CACHE_DIR.mkdir(exist_ok=True)
-
 SPEAKER_WAVS = [
     str(VOICE_DIR / "voice1.wav"),
     str(VOICE_DIR / "voice2.wav"),
@@ -41,7 +38,6 @@ def clone_to_file(
     text: str,
     filename: str = "output.wav",
     language: str = "en",
-    speaker_id: str = "peter"
 ) -> str:
     if not text or not text.strip():
         raise ValueError("Text is required")
@@ -52,8 +48,6 @@ def clone_to_file(
     tts.tts_to_file(
         text=text,
         speaker_wav=SPEAKER_WAVS,
-        speaker=speaker_id,
-        voice_dir=str(VOICE_CACHE_DIR),
         language=language,
         file_path=str(output_path)
     )
@@ -63,12 +57,10 @@ def clone_to_file(
 def clone_to_unique_file(
     text: str,
     language: str = "en",
-    speaker_id: str = "peter"
 ) -> str:
     unique_name = f"{uuid.uuid4().hex}.wav"
     return clone_to_file(
         text=text,
         filename=unique_name,
         language=language,
-        speaker_id=speaker_id
     )
