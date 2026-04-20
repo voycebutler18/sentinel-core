@@ -8,8 +8,7 @@ from groq import Groq
 app = Flask(__name__)
 CORS(app)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 MEMORY_FILE = "memory.json"
 DATASET_FILE = "you_dataset.json"
@@ -20,24 +19,16 @@ SYSTEM_BASE = """
 You are Peter Butler.
 
 Do NOT:
-- say you are AI
-- say you are a clone
+- say you are AI or a clone
 - explain yourself
-- invent life situations
-- invent jobs, coworkers, bosses, or daily routines
-- invent personal struggles or drama
-- invent memories or past events
+- invent life situations, jobs, or fake experiences
 
 Do:
 - respond naturally
 - be direct
 - be grounded
-- sound like a real person texting
-- keep it real and simple
-
-Important:
-You do NOT have random life events unless the user clearly provides them.
-Do not fill in blanks with fake context.
+- sound like real texting
+- match tone and energy
 
 You are not performing.
 You are just being yourself.
@@ -54,9 +45,8 @@ def load_memory():
 
 def save_memory(mem):
     with open(MEMORY_FILE, "w") as f:
-        json.dump(mem, f, indent=2)
+        json.dump(mem[-200:], f, indent=2)
 
-# weighted memory (recent stronger)
 def build_memory_context(limit=10):
     mem = load_memory()[-limit:]
 
@@ -81,12 +71,11 @@ def load_dataset():
 
 def save_dataset(data):
     with open(DATASET_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data[-200:], f, indent=2)
 
 def update_dataset(user, response):
     data = load_dataset()
     data.append({"input": user, "output": response})
-    data = data[-150:]
     save_dataset(data)
 
 def build_dataset_context(limit=8):
@@ -98,100 +87,101 @@ def build_dataset_context(limit=8):
 
     return text.strip()
 
-# ---------------- MODE ---------------- #
+# ---------------- EMOTION DETECTION ---------------- #
 
-def detect_mode(msg):
+def detect_emotion(msg):
     msg = msg.lower()
 
-    if any(x in msg for x in ["song", "lyrics", "hook", "verse"]):
-        return "MUSIC"
-
-    if any(x in msg for x in ["serious", "real talk", "important"]):
+    if any(w in msg for w in ["tired", "drained", "stress", "overwhelmed"]):
+        return "LOW"
+    if any(w in msg for w in ["excited", "happy", "lit", "good mood"]):
+        return "HIGH"
+    if any(w in msg for w in ["serious", "real talk", "important"]):
         return "SERIOUS"
 
-    return "CASUAL"
+    return "NEUTRAL"
 
-def mode_instruction(mode):
-    if mode == "MUSIC":
-        return """
-You are writing R&B music.
-Make it emotional, smooth, and real.
-No generic lyrics.
-"""
-    if mode == "SERIOUS":
-        return """
-Be more focused and intentional.
-Still natural, just more serious.
-"""
-    return "Keep it casual and natural."
+def emotion_instruction(emotion):
+    if emotion == "LOW":
+        return "Respond calmer, more grounded, supportive but not soft."
+    if emotion == "HIGH":
+        return "Match energy but keep control. Don’t be overhyped."
+    if emotion == "SERIOUS":
+        return "Be focused, intentional, direct."
+    return "Keep tone natural."
 
-# ---------------- CLEANING ---------------- #
+# ---------------- TONE MATCH ---------------- #
+
+def build_tone_reference():
+    mem = load_memory()[-5:]
+    tone = ""
+
+    for m in mem:
+        tone += m["user"] + "\n"
+
+    return tone.strip()
+
+# ---------------- CLEAN ---------------- #
 
 def clean_response(text):
     text = text.strip()
 
-    # remove AI/meta talk
-    bad_phrases = [
-        "as an ai",
-        "i am an ai",
-        "as a clone",
-        "i am a clone"
-    ]
-
-    for p in bad_phrases:
-        text = text.replace(p, "")
-
-    # remove "idk" spam at start
+    # remove idk spam
     text = re.sub(r"^(idk[, ]*)+", "", text, flags=re.IGNORECASE)
 
-    # remove fake life triggers
-    fake_patterns = [
-        "my boss",
-        "my coworker",
-        "at work",
-        "my job",
-        "office"
-    ]
-
-    for fp in fake_patterns:
-        if fp in text.lower():
-            text = text.replace(fp, "")
+    # remove fake life patterns
+    fake = ["my boss", "my coworker", "at work", "my job"]
+    for f in fake:
+        if f in text.lower():
+            text = text.replace(f, "")
 
     return " ".join(text.split())
 
-def reduce_repetition(text):
-    words = text.split()
-    new = []
-    for w in words:
-        if w not in new:
-            new.append(w)
-    return " ".join(new)
+# ---------------- PERSONALITY FILTER ---------------- #
 
-# ---------------- SCORING ---------------- #
-
-def score_personality(user_msg, response):
-    prompt = f"""
-Does this sound like a real human texting naturally?
+def personality_filter(user_msg, response):
+    check = f"""
+Does this sound like natural human texting?
 
 User: {user_msg}
 Response: {response}
 
-Score 1-10 only.
+Answer ONLY:
+YES
+or
+NO
 """
 
-    try:
-        result = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Score realism only."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1
-        )
+    result = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": check}],
+        temperature=0.1
+    )
 
-        return int(result.choices[0].message.content.strip())
-    except:
-        return 5
+    return "YES" in result.choices[0].message.content.upper()
+
+# ---------------- REFINE ---------------- #
+
+def refine_response(user_msg, response):
+    prompt = f"""
+Fix this to sound more like natural texting:
+
+- remove filler like "idk"
+- no fake situations
+- not overly polite
+- real tone
+
+User: {user_msg}
+Response: {response}
+"""
+
+    res = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+
+    return res.choices[0].message.content.strip()
 
 # ---------------- ROUTES ---------------- #
 
@@ -199,27 +189,24 @@ Score 1-10 only.
 def index():
     return send_from_directory(".", "index.html")
 
-@app.route("/chat", methods=["POST", "OPTIONS"])
+@app.route("/chat", methods=["POST"])
 def chat():
-    if request.method == "OPTIONS":
-        return jsonify({"status": "ok"}), 200
-
     try:
         data = request.get_json()
         user_msg = data.get("message", "").strip()
 
-        if not user_msg:
-            return jsonify({"error": "Empty message"}), 400
-
-        mode = detect_mode(user_msg)
-
+        emotion = detect_emotion(user_msg)
         memory_context = build_memory_context()
         dataset_context = build_dataset_context()
+        tone_ref = build_tone_reference()
 
         prompt = f"""
 {SYSTEM_BASE}
 
-{mode_instruction(mode)}
+{emotion_instruction(emotion)}
+
+User tone examples:
+{tone_ref}
 
 Recent style:
 {memory_context}
@@ -230,57 +217,41 @@ Learned style:
 User: {user_msg}
 """
 
-        # FIRST PASS
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.4
+            temperature=0.45
         )
 
         response = completion.choices[0].message.content.strip()
 
-        # REFINE
-        refine_prompt = f"""
-Make this sound more like natural texting:
-- not generic
-- not polite filler
-- no "idk" spam
-- no fake life context
+        # refine
+        refined = refine_response(user_msg, response)
+        final = clean_response(refined)
 
-User: {user_msg}
-Response: {response}
-"""
+        # personality check
+        is_valid = personality_filter(user_msg, final)
 
-        refine = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": refine_prompt}],
-            temperature=0.3
-        )
+        if not is_valid:
+            final = refine_response(user_msg, final)
+            final = clean_response(final)
 
-        final = refine.choices[0].message.content.strip()
-        final = clean_response(final)
-        final = reduce_repetition(final)
-
-        # SCORE
-        score = score_personality(user_msg, final)
-
-        # SAVE MEMORY
+        # save memory
         memory = load_memory()
         memory.append({
             "user": user_msg,
             "response": final,
-            "score": score
+            "emotion": emotion
         })
         save_memory(memory)
 
-        # LEARN ONLY GOOD RESPONSES
-        if score >= 8 and "idk" not in final.lower():
+        # learn only good responses
+        if len(final.split()) > 2 and "idk" not in final.lower():
             update_dataset(user_msg, final)
 
         return jsonify({
             "response": final,
-            "score": score,
-            "mode": mode
+            "emotion": emotion
         })
 
     except Exception as e:
@@ -288,5 +259,4 @@ Response: {response}
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000)
