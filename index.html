@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>VOYCE // Digital Twin</title>
+<title>VOYÉR</title>
 <style>
   :root {
     --bg-0: #04070f;
@@ -379,9 +379,9 @@
 
 <div class="hud">
   <div class="topbar">
-    <div class="brand"><span class="dot" id="status-dot"></span>VOYCE // DIGITAL TWIN</div>
+    <div class="brand"><span class="dot" id="status-dot"></span>VOYÉR</div>
     <div class="state-pill" id="state-label">STANDBY</div>
-    <div>XTTS · BROWSER · V2.1</div>
+    <div>VOYÉR · BAIFI SYSTEMS</div>
   </div>
 
   <main class="stage">
@@ -400,7 +400,7 @@
     </div>
 
     <div class="caption" id="caption">
-      <span class="who" id="caption-who">TWIN ONLINE</span>
+      <span class="who" id="caption-who">VOYÉR ONLINE</span>
       <span class="text" id="caption-text">Tap &quot;Begin&quot; and just talk to me.</span>
     </div>
   </main>
@@ -557,14 +557,14 @@ function setState(state) {
     els.captionText.textContent = 'Listening...';
   } else if (state === 'thinking') {
     els.caption.classList.remove('user');
-    els.captionWho.textContent = 'TWIN';
+    els.captionWho.textContent = 'VOYÉR';
     els.captionText.textContent = 'Thinking...';
   } else if (state === 'speaking') {
     els.caption.classList.remove('user');
-    els.captionWho.textContent = 'TWIN';
+    els.captionWho.textContent = 'VOYÉR';
   } else {
     els.caption.classList.remove('user');
-    els.captionWho.textContent = convoActive ? 'TWIN' : 'TWIN ONLINE';
+    els.captionWho.textContent = convoActive ? 'VOYÉR' : 'VOYÉR ONLINE';
     els.captionText.textContent = convoActive ? 'Standing by.' : 'Tap "Begin" and just talk to me.';
   }
 }
