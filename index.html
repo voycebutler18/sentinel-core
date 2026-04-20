@@ -212,6 +212,153 @@
     .primary-btn { padding: 14px 22px; font-size: 11px; letter-spacing: 0.25em; }
     .footer { gap: 14px; padding: 14px; }
   }
+
+  /* ============================================================
+     HOLOGRAM THEME — Phase 1/2 visual upgrade (additive only)
+     ============================================================ */
+
+  /* Ambient bokeh / data-light layer behind the grid */
+  .bg::before {
+    content: "";
+    position: absolute; inset: -10%;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(95,232,255,0.10), transparent 12%),
+      radial-gradient(circle at 75% 65%, rgba(95,232,255,0.08), transparent 14%),
+      radial-gradient(circle at 50% 80%, rgba(255,159,107,0.06), transparent 16%),
+      radial-gradient(circle at 85% 20%, rgba(120,180,255,0.07), transparent 14%),
+      radial-gradient(circle at 10% 75%, rgba(95,232,255,0.06), transparent 18%);
+    filter: blur(40px);
+    animation: bokeh-drift 22s ease-in-out infinite alternate;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+  @keyframes bokeh-drift {
+    0%   { transform: translate3d(0,0,0) scale(1); }
+    50%  { transform: translate3d(-2%, 1%, 0) scale(1.05); }
+    100% { transform: translate3d(2%, -1.5%, 0) scale(1.02); }
+  }
+
+  /* Drifting data-stream lines */
+  .grid::after {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(180deg, transparent 0%, rgba(95,232,255,0.08) 50%, transparent 100%);
+    background-size: 100% 200px;
+    animation: data-stream 9s linear infinite;
+    mix-blend-mode: screen;
+    opacity: 0.55;
+  }
+  @keyframes data-stream {
+    0%   { background-position: 0 -200px; }
+    100% { background-position: 0 100vh; }
+  }
+
+  /* Holographic projection on the avatar */
+  .avatar img {
+    filter:
+      brightness(1.05)
+      contrast(1.08)
+      saturate(0.85)
+      hue-rotate(170deg)
+      drop-shadow(0 0 14px rgba(95,232,255,0.45));
+    mix-blend-mode: screen;
+    animation: holo-flicker 6s ease-in-out infinite;
+  }
+  @keyframes holo-flicker {
+    0%, 100% { opacity: 0.96; }
+    42%      { opacity: 0.88; }
+    44%      { opacity: 1;    }
+    70%      { opacity: 0.92; }
+    72%      { opacity: 1;    }
+  }
+
+  /* Tinted projection plate beneath the photo */
+  .avatar::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 50% 45%, rgba(95,232,255,0.18), transparent 65%),
+      linear-gradient(180deg, rgba(10,40,70,0.55), rgba(5,15,30,0.85));
+    z-index: 0;
+    pointer-events: none;
+  }
+  .avatar img,
+  .avatar .blink,
+  .avatar .mouth { position: relative; z-index: 1; }
+
+  /* Scanlines + chromatic sweep over the avatar */
+  .avatar::after {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        rgba(95,232,255,0.06) 0px,
+        rgba(95,232,255,0.06) 1px,
+        transparent 1px,
+        transparent 3px
+      ),
+      linear-gradient(180deg,
+        transparent 0%,
+        rgba(95,232,255,0.18) 48%,
+        rgba(95,232,255,0.28) 50%,
+        rgba(95,232,255,0.18) 52%,
+        transparent 100%);
+    background-size: 100% 100%, 100% 220%;
+    background-repeat: repeat, no-repeat;
+    background-position: 0 0, 0 -120%;
+    animation: scan-sweep 4.2s linear infinite;
+    mix-blend-mode: screen;
+    pointer-events: none;
+    z-index: 2;
+  }
+  @keyframes scan-sweep {
+    0%   { background-position: 0 0,    0 -120%; }
+    100% { background-position: 0 0,    0  120%; }
+  }
+
+  /* Outer ring becomes an "ambient listening" pulse driver */
+  .ring.pulse {
+    box-shadow:
+      0 0 24px rgba(95,232,255,0.35),
+      inset 0 0 24px rgba(95,232,255,0.18);
+    transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+  }
+  .ring.pulse.hot {
+    border-color: rgba(255,159,107,0.85);
+    box-shadow:
+      0 0 42px rgba(255,159,107,0.55),
+      inset 0 0 28px rgba(255,159,107,0.30);
+  }
+  .ring.pulse.twin-hot {
+    border-color: rgba(95,232,255,0.95);
+    box-shadow:
+      0 0 48px rgba(95,232,255,0.7),
+      inset 0 0 30px rgba(95,232,255,0.35);
+  }
+
+  /* Slower, more organic idle sway (additive — augments .breathe) */
+  .avatar-wrap {
+    animation: idle-sway 7.5s ease-in-out infinite;
+    will-change: transform;
+  }
+  @keyframes idle-sway {
+    0%, 100% { transform: translate(0, 0); }
+    25%      { transform: translate(-1px, -2px); }
+    50%      { transform: translate(1px, -3px); }
+    75%      { transform: translate(2px, -1px); }
+  }
+
+  /* Mouth gets a softer organic transition */
+  .mouth {
+    transition: height 80ms ease-out, width 80ms ease-out, border-radius 120ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bg::before, .grid::after, .avatar img, .avatar::after,
+    .avatar-wrap { animation: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -525,6 +672,91 @@ els.convoBtn.addEventListener('click', () => {
 });
 
 setState('idle');
+
+/* ============================================================
+   HOLOGRAM ENHANCEMENTS — Phase 2/3 (additive overrides)
+   ============================================================ */
+(function holoEnhancements() {
+  const pulseRing = document.querySelector('.ring.pulse');
+
+  /* --- Organic mouth (phoneme-ish bounce with shape change) --- */
+  function startMouthAnimOrganic() {
+    let t = 0;
+    const tick = () => {
+      if (!speaking) { stopMouthAnim(); return; }
+      const v = 0.4 + 0.6 * Math.abs(Math.sin(t * 0.25) * Math.cos(t * 0.12));
+      const jitter = (Math.random() - 0.5) * 0.08;
+      const vv = Math.max(0, Math.min(1, v + jitter));
+      els.mouth.style.height = (5 + vv * 15) + '%';
+      els.mouth.style.width  = (20 + vv * 10) + '%';
+      els.mouth.style.borderRadius = (50 - vv * 22) + '%';
+      els.twinLevel.style.width = (vv * 100) + '%';
+      if (pulseRing) pulseRing.classList.toggle('twin-hot', vv > 0.55);
+      t++;
+      mouthRafId = requestAnimationFrame(tick);
+    };
+    mouthRafId = requestAnimationFrame(tick);
+  }
+  startMouthAnim = startMouthAnimOrganic;
+
+  const _stopMouth = stopMouthAnim;
+  stopMouthAnim = function() {
+    _stopMouth();
+    els.mouth.style.borderRadius = '50%';
+    if (pulseRing) pulseRing.classList.remove('twin-hot');
+  };
+
+  /* --- Variable blinking (sometimes double-blink, sometimes long pause) --- */
+  function holoBlinkOnce(cb) {
+    els.blink.classList.add('on');
+    setTimeout(() => {
+      els.blink.classList.remove('on');
+      cb && cb();
+    }, 90 + Math.random() * 70);
+  }
+  function holoScheduleBlink() {
+    const roll = Math.random();
+    let wait;
+    if (roll < 0.15)      wait = 600  + Math.random() * 400;   // quick re-blink
+    else if (roll < 0.75) wait = 2200 + Math.random() * 2800;  // normal
+    else                  wait = 5500 + Math.random() * 3500;  // long stare
+    setTimeout(() => {
+      holoBlinkOnce(() => {
+        if (Math.random() < 0.22) {
+          // double-blink
+          setTimeout(() => holoBlinkOnce(holoScheduleBlink), 140);
+        } else {
+          holoScheduleBlink();
+        }
+      });
+    }, wait);
+  }
+  holoScheduleBlink();
+
+  /* --- Ambient listening: pulse ring reacts to mic level --- */
+  const _startMic = startMicLoop;
+  startMicLoop = function() {
+    _startMic();
+    if (!analyserMic) return;
+    const data = new Uint8Array(analyserMic.frequencyBinCount);
+    const reactive = () => {
+      if (!micRafId) return;
+      analyserMic.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) { const v = (data[i]-128)/128; sum += v*v; }
+      const rms = Math.min(1, Math.sqrt(sum/data.length) * 3);
+      if (pulseRing) pulseRing.classList.toggle('hot', rms > 0.18);
+      requestAnimationFrame(reactive);
+    };
+    requestAnimationFrame(reactive);
+  };
+
+  const _stopMic = stopMicLoop;
+  stopMicLoop = function() {
+    _stopMic();
+    if (pulseRing) pulseRing.classList.remove('hot');
+  };
+})();
 </script>
 </body>
 </html>
