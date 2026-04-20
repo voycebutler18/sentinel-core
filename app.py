@@ -148,7 +148,7 @@ Keep it brief, warm, and Chicago. This is for your own awareness before you resp
 User message: {user_msg or '(no message, just checking in)'}"""
 
         completion = client.chat.completions.create(
-            model="llama-4-scout-17b-16e-instruct",
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
                 {
                     "role": "user",
@@ -255,7 +255,7 @@ Use this visual context naturally — like a friend who can actually see you. Do
                 image_data = f"data:image/jpeg;base64,{image_data}"
 
             completion = client.chat.completions.create(
-                model="llama-4-scout-17b-16e-instruct",
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
                 messages=[
                     {"role": "system", "content": SYSTEM_BASE},
                     {
