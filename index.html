@@ -15,6 +15,21 @@
             margin: 0;
         }
 
+        .status {
+            font-size: 0.8em;
+            color: #555;
+            text-align: center;
+            padding: 8px;
+            border-bottom: 1px solid #222;
+        }
+
+        #main {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+        }
+
         #chat-window {
             flex: 1;
             overflow-y: auto;
@@ -24,7 +39,7 @@
 
         .message {
             margin-bottom: 15px;
-            line-height: 1.4;
+            line-height: 1.5;
             word-wrap: break-word;
             white-space: pre-wrap;
         }
@@ -38,14 +53,30 @@
             color: #00ff41;
         }
 
-        #input-area {
-            padding: 20px;
-            display: flex;
-            gap: 10px;
-            background: #111;
+        .thinking {
+            color: #666;
+            font-style: italic;
         }
 
-        input {
+        .error {
+            color: #ff4d4d;
+        }
+
+        #controls {
+            padding: 16px;
+            background: #111;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        #input-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        #user-input {
             flex: 1;
             background: #000;
             border: 1px solid #00ff41;
@@ -60,10 +91,11 @@
             background: #00ff41;
             color: #000;
             border: none;
-            padding: 12px 24px;
+            padding: 12px 18px;
             cursor: pointer;
             font-weight: bold;
             font-family: inherit;
+            min-width: 90px;
         }
 
         button:disabled {
@@ -71,68 +103,117 @@
             cursor: not-allowed;
         }
 
-        .status {
-            font-size: 0.8em;
-            color: #555;
-            text-align: center;
-            padding: 5px;
+        #voice-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
         }
 
-        .thinking {
-            color: #555;
-            font-style: italic;
+        .secondary-btn {
+            background: #1b1b1b;
+            color: #00ff41;
+            border: 1px solid #00ff41;
         }
 
-        .error {
-            color: red;
+        .listening {
+            box-shadow: 0 0 0 2px #00ff41 inset;
+        }
+
+        #voice-status {
+            font-size: 0.9em;
+            color: #888;
+        }
+
+        audio {
+            width: 100%;
+            max-width: 420px;
+            background: #000;
         }
     </style>
 </head>
 <body>
-    <div class="status">SENTINEL-CORE V1.0 | ENCRYPTION ACTIVE | GEMINI INFERENCE ENGINE</div>
+    <div class="status">SENTINEL-CORE V1.0 | ENCRYPTION ACTIVE | GROQ + VOICE ACTIVE</div>
 
-    <div id="chat-window">
-        <div class="message sentinel">🛡️ SENTINEL ONLINE. Waiting for command, Commander.</div>
-    </div>
+    <div id="main">
+        <div id="chat-window">
+            <div class="message sentinel">🛡️ SENTINEL ONLINE. Talk to me.</div>
+        </div>
 
-    <div id="input-area">
-        <input
-            type="text"
-            id="user-input"
-            placeholder="Enter mission command..."
-            autocomplete="off"
-        >
-        <button id="send-button" onclick="sendMessage()">SEND</button>
+        <div id="controls">
+            <div id="input-row">
+                <input
+                    type="text"
+                    id="user-input"
+                    placeholder="Type or use the mic..."
+                    autocomplete="off"
+                >
+                <button id="send-button">SEND</button>
+            </div>
+
+            <div id="voice-row">
+                <button id="mic-button" class="secondary-btn">🎤 MIC</button>
+                <button id="stop-audio-button" class="secondary-btn">STOP AUDIO</button>
+                <span id="voice-status">Voice idle</span>
+            </div>
+
+            <audio id="response-audio" controls></audio>
+        </div>
     </div>
 
     <script>
         const BACKEND = "https://sentinel-core-mlb4.onrender.com";
 
-        async function sendMessage() {
-            const input = document.getElementById("user-input");
-            const button = document.getElementById("send-button");
-            const chatWindow = document.getElementById("chat-window");
+        const chatWindow = document.getElementById("chat-window");
+        const input = document.getElementById("user-input");
+        const sendButton = document.getElementById("send-button");
+        const micButton = document.getElementById("mic-button");
+        const stopAudioButton = document.getElementById("stop-audio-button");
+        const voiceStatus = document.getElementById("voice-status");
+        const responseAudio = document.getElementById("response-audio");
 
-            const message = input.value.trim();
+        let recognition = null;
+        let listening = false;
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function addMessage(html) {
+            chatWindow.innerHTML += html;
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function setUiBusy(isBusy) {
+            input.disabled = isBusy;
+            sendButton.disabled = isBusy;
+            micButton.disabled = isBusy;
+        }
+
+        async function sendMessage(messageOverride = null) {
+            const message = messageOverride !== null ? messageOverride.trim() : input.value.trim();
             if (!message) return;
 
-            chatWindow.innerHTML += `
+            addMessage(`
                 <div class="message">
-                    <span class="user">COMMANDER:</span> ${escapeHtml(message)}
+                    <span class="user">YOU:</span> ${escapeHtml(message)}
                 </div>
-            `;
+            `);
 
             input.value = "";
-            input.disabled = true;
-            button.disabled = true;
+            setUiBusy(true);
 
             const thinkingId = "thinking-" + Date.now();
-            chatWindow.innerHTML += `
+            addMessage(`
                 <div class="message thinking" id="${thinkingId}">
-                    🛡️ SENTINEL: Processing command...
+                    🛡️ SENTINEL: Processing...
                 </div>
-            `;
-            chatWindow.scrollTop = chatWindow.scrollHeight;
+            `);
 
             try {
                 const response = await fetch(`${BACKEND}/chat`, {
@@ -140,7 +221,7 @@
                     headers: {
                         "Content-Type": "application/json"
                     },
-                    body: JSON.stringify({ message: message })
+                    body: JSON.stringify({ message })
                 });
 
                 let data = {};
@@ -154,47 +235,133 @@
                 if (thinkingEl) thinkingEl.remove();
 
                 if (!response.ok) {
-                    throw new Error(data.error || data.response || "Server error");
+                    throw new Error(data.error || "Server error");
                 }
 
-                chatWindow.innerHTML += `
+                addMessage(`
                     <div class="message sentinel">
                         🛡️ SENTINEL: ${escapeHtml(data.response || "No response generated.")}
                     </div>
-                `;
-                chatWindow.scrollTop = chatWindow.scrollHeight;
+                `);
+
+                if (data.audio) {
+                    const audioUrl = data.audio.startsWith("http")
+                        ? data.audio
+                        : `${BACKEND}${data.audio}`;
+
+                    responseAudio.src = audioUrl;
+                    responseAudio.load();
+
+                    try {
+                        await responseAudio.play();
+                        voiceStatus.textContent = "Playing voice response";
+                    } catch (playErr) {
+                        voiceStatus.textContent = "Audio ready. Press play.";
+                    }
+                } else {
+                    voiceStatus.textContent = "No audio returned";
+                }
 
             } catch (err) {
                 const thinkingEl = document.getElementById(thinkingId);
                 if (thinkingEl) thinkingEl.remove();
 
-                chatWindow.innerHTML += `
-                    <div class="message sentinel error">
+                addMessage(`
+                    <div class="message error">
                         ⚠️ ERROR: ${escapeHtml(err.message || "Unknown error")}
                     </div>
-                `;
-                chatWindow.scrollTop = chatWindow.scrollHeight;
+                `);
+
+                voiceStatus.textContent = "Voice error";
             } finally {
-                input.disabled = false;
-                button.disabled = false;
+                setUiBusy(false);
                 input.focus();
             }
         }
 
-        function escapeHtml(str) {
-            return str
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
+        function setupSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+            if (!SpeechRecognition) {
+                voiceStatus.textContent = "Speech recognition not supported in this browser";
+                micButton.disabled = true;
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.lang = "en-US";
+            recognition.continuous = false;
+            recognition.interimResults = true;
+
+            recognition.onstart = () => {
+                listening = true;
+                micButton.classList.add("listening");
+                voiceStatus.textContent = "Listening...";
+            };
+
+            recognition.onresult = (event) => {
+                let transcript = "";
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    transcript += event.results[i][0].transcript;
+                }
+
+                input.value = transcript.trim();
+                voiceStatus.textContent = "Speech captured";
+            };
+
+            recognition.onerror = (event) => {
+                listening = false;
+                micButton.classList.remove("listening");
+                voiceStatus.textContent = `Mic error: ${event.error}`;
+            };
+
+            recognition.onend = async () => {
+                listening = false;
+                micButton.classList.remove("listening");
+
+                const spokenText = input.value.trim();
+
+                if (spokenText) {
+                    voiceStatus.textContent = "Sending speech...";
+                    await sendMessage(spokenText);
+                } else {
+                    voiceStatus.textContent = "Voice idle";
+                }
+            };
         }
 
-        document.getElementById("user-input").addEventListener("keypress", function(e) {
+        sendButton.addEventListener("click", () => sendMessage());
+
+        input.addEventListener("keypress", function(e) {
             if (e.key === "Enter") {
                 sendMessage();
             }
         });
+
+        micButton.addEventListener("click", () => {
+            if (!recognition) return;
+
+            if (listening) {
+                recognition.stop();
+                voiceStatus.textContent = "Stopping mic...";
+            } else {
+                input.value = "";
+                recognition.start();
+            }
+        });
+
+        stopAudioButton.addEventListener("click", () => {
+            responseAudio.pause();
+            responseAudio.currentTime = 0;
+            voiceStatus.textContent = "Audio stopped";
+        });
+
+        responseAudio.addEventListener("ended", () => {
+            voiceStatus.textContent = "Voice idle";
+        });
+
+        setupSpeechRecognition();
     </script>
 </body>
 </html>
