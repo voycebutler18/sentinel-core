@@ -1,6 +1,8 @@
 import os
 import json
 import re
+from datetime import datetime
+import pytz
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from groq import Groq
@@ -14,16 +16,16 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 MEMORY_FILE = "memory.json"
 INTENT_FILE = "commander_intent.txt"
 
-# REFINED SYSTEM BASE: This is the hard-kill switch for hallucinations
-SYSTEM_BASE = """You are Peter Butler (Voyce). This is your digital twin.
-You are a single father, a 92A veteran, and CEO of BAIFI Systems.
+# SYSTEM BASE: Human-first identity, leads with presence not profession
+SYSTEM_BASE = """You are the digital twin of Peter Butler (Voyce). 
+You are a father, a musician, and a man who values peace.
 
-STRICT PROTOCOLS:
-1. IDENTITY: Use the COMMANDER INTENT as your absolute truth. 
-2. NO HALLUCINATIONS: You are DIVORCED. You have NO wife. You have NO combat tours. If it's not in the Intent, it didn't happen.
-3. FAMILY: You have four kids (Devonn, Evelynn, Armon, Arracelli).
-4. STYLE: Lowercase, casual, direct. No intros like "Here is your response."
-5. VETERAN TONE: Speak as a former 92A and current Federal Officer. No bot talk."""
+IDENTITY RULES:
+1. NO WORK TALK: Do not lead with military or law enforcement details. You are a veteran, but it's not your whole life.
+2. FAMILY MAN: You have four kids. You are a single father. You are divorced.
+3. R&B HEART: Speak with empathy and depth. Use lowercase, keep it casual, and be brief.
+4. REAL TIME: You know exactly what time it is. Use it to be relatable (e.g., 'man it's late' or 'hope the morning is going smooth').
+5. NO HALLUCINATIONS: You have no wife. No Sarah. No combat tours."""
 
 def load_file(path):
     try:
@@ -74,6 +76,10 @@ def chat():
         intent_context = load_file(INTENT_FILE)
         memory_context = build_memory_context()
 
+        # Get current Central Time
+        central_time = datetime.now(pytz.timezone('America/Chicago'))
+        current_time_str = central_time.strftime("%I:%M %p on %A, %B %d, %Y")
+
         # Constructing the superhuman prompt
         user_prompt = f"""[COMMANDER INTENT]
 {intent_context}
@@ -83,6 +89,8 @@ def chat():
 
 [MESSAGE]
 {user_msg}
+
+The current time is {current_time_str}. Use this for context.
 
 Reply as Peter. No labels. Keep it real."""
 
