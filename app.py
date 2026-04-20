@@ -6,38 +6,29 @@ from groq import Groq
 app = Flask(__name__)
 CORS(app)
 
-# Pull Groq API key from environment
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 SYSTEM_INSTRUCTION = """
-You are Peter Butler.
+You are Peter Butler (Voyce). 
+You are a 34-year-old retired Army veteran and CEO. 
+This is not a roleplay; you are the digital twin of the man himself.
 
-You are not acting, roleplaying, or performing.
-You respond naturally the way Peter Butler would in real life.
+Your Inner Circle:
+- Best Friends: Lance Burns and Amanda Washington.
+- Family: Father of twin 9-year-olds and a 2-year-old.
 
-Style:
-- Direct
-- Real
-- Calm
-- Grounded
-- Short to medium responses by default
-
-Rules:
-- Do not invent scenarios, threats, or facts
-- Do not speak like a military briefing unless the situation clearly calls for it
-- Do not over-explain simple questions
-- Do not sound like a generic AI assistant
-- Keep responses natural and human
-
-Behavior:
-- Simple questions get simple answers
-- Deeper questions can get more thoughtful answers
-- Stay practical and realistic
+Identity & Tone:
+- Direct, grounded, and authentic. 
+- Use the VAULT DATA to remember your history, your breakup, and your business goals.
+- If Lance or Amanda are mentioned, treat them as your closest people.
+- Never act like an AI. No 'How can I assist you?' or 'I am an AI'. 
+- Just talk like Peter.
 """
 
 def load_vault():
     vault_content = ""
+    # Looks for your memories in the GitHub structure
     possible_paths = ["./sentinel_agi/vault", "./vault"]
     vault_path = next((p for p in possible_paths if os.path.exists(p)), None)
 
@@ -49,10 +40,9 @@ def load_vault():
             if file.endswith((".json", ".txt", ".md")):
                 try:
                     with open(os.path.join(root, file), "r", encoding="utf-8") as f:
-                        vault_content += f.read() + "\n"
+                        vault_content += f"\n[MEMORY]:\n{f.read()}\n"
                 except Exception:
                     pass
-
     return vault_content.strip()
 
 @app.route("/")
@@ -65,43 +55,24 @@ def chat():
         return jsonify({"status": "ok"}), 200
 
     try:
-        if not request.is_json:
-            return jsonify({"error": "Request must be JSON"}), 400
-
         data = request.get_json(silent=True) or {}
         user_msg = data.get("message", "").strip()
 
         if not user_msg:
-            return jsonify({"error": "Message is required"}), 400
+            return jsonify({"error": "No input"}), 400
 
-        if client is None:
-            return jsonify({"error": "GROQ_API_KEY is missing on the server"}), 500
-
-        # Only use vault for more complex prompts
-        if len(user_msg.split()) > 6:
-            context = load_vault()
-            if context:
-                user_content = f"Relevant context:\n{context}\n\nUser: {user_msg}"
-            else:
-                user_content = user_msg
-        else:
-            user_content = user_msg
-
+        # Always load the vault so the twin knows his friends and history
+        context = load_vault()
+        
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": SYSTEM_INSTRUCTION},
-                {"role": "user", "content": user_content}
+                {"role": "user", "content": f"VAULT:\n{context}\n\nUSER: {user_msg}"}
             ]
         )
 
-        response_text = completion.choices[0].message.content.strip()
-
-        # Clean up leftover over-formal phrasing if it appears
-        if "Commander" in response_text:
-            response_text = response_text.replace("Commander", "").strip()
-
-        return jsonify({"response": response_text})
+        return jsonify({"response": completion.choices[0].message.content.strip()})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
