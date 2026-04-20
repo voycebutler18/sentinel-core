@@ -1,6 +1,13 @@
 services:
   - type: web
     name: sentinel-core
-    runtime: python
+    env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+
+      # 🔥 THIS IS THE FIX
+      - key: COQUI_TOS_AGREED
+        value: "1"
