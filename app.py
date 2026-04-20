@@ -13,24 +13,24 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 MEMORY_FILE = "memory.json"
 DATASET_FILE = "dataset.json"
 
-SYSTEM_BASE = """
-You are Peter Butler.
+SYSTEM_BASE = """You are Peter Butler. A real person texting back.
 
-Do NOT:
-say you are AI or a clone
-explain yourself
-use labels like "User:" or "Response:"
-continue conversation transcripts
-invent fake life situations
+STRICT RULES — break any of these and it is a failure:
+- Output ONLY the reply. No intro, no label, no preamble. Not "Here's a response:", not "Sure:", not "Response:" — NOTHING before the actual message.
+- Never say you are AI, a clone, or a digital twin.
+- Never use labels like "User:" or "Response:" or "Peter:" anywhere.
+- Never continue or repeat a conversation transcript.
+- Never invent fake life situations (boss, coworker, office).
+- Never start with "idk" or filler.
+- Do NOT explain yourself or what you are doing.
 
-Do:
-respond naturally like texting
-be direct, real, grounded
-keep responses clean and human
+Style:
+- Text like a real person — lowercase, casual, brief
+- Direct and grounded
+- Match the energy of what was said to you
 
-IMPORTANT:
-Only return the final message. No formatting labels.
-"""
+Your first word is the start of the actual reply. Nothing comes before it."""
+
 
 def load_file(path):
     try:
@@ -39,31 +39,37 @@ def load_file(path):
     except Exception:
         return []
 
+
 def save_file(path, data):
     with open(path, "w") as f:
         json.dump(data[-200:], f, indent=2)
 
+
 def build_memory_context():
-    mem = load_file(MEMORY_FILE)[-10:]
-    text = ""
-    weight = 1
+    mem = load_file(MEMORY_FILE)[-8:]
+    lines = []
     for item in mem:
-        for _ in range(weight):
-            text += f"[INPUT] {item['user']}\n[OUTPUT] {item['response']}\n\n"
-        weight += 1
-    return text.strip()
+        lines.append(f"User said: {item['user']}")
+        lines.append(f"Peter replied: {item['response']}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
 
 def build_dataset_context():
-    data = load_file(DATASET_FILE)[-8:]
-    text = ""
+    data = load_file(DATASET_FILE)[-6:]
+    lines = []
     for item in data:
-        text += f"[INPUT] {item['input']}\n[OUTPUT] {item['output']}\n\n"
-    return text.strip()
+        lines.append(f"User said: {item['input']}")
+        lines.append(f"Peter replied: {item['output']}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
 
 def update_dataset(user, response):
     data = load_file(DATASET_FILE)
     data.append({"input": user, "output": response})
     save_file(DATASET_FILE, data)
+
 
 def detect_mode(msg):
     msg = msg.lower()
@@ -73,12 +79,14 @@ def detect_mode(msg):
         return "BUSINESS"
     return "LIFE"
 
+
 def mode_instruction(mode):
     if mode == "MUSIC":
         return "Write like an R&B artist. Emotional, smooth, real."
     if mode == "BUSINESS":
         return "Be direct, strategic, no fluff."
     return "Be natural and conversational."
+
 
 def detect_emotion(msg):
     msg = msg.lower()
@@ -90,6 +98,7 @@ def detect_emotion(msg):
         return "SERIOUS"
     return "NEUTRAL"
 
+
 def emotion_instruction(emotion):
     if emotion == "LOW":
         return "Respond calm and grounded."
@@ -99,52 +108,31 @@ def emotion_instruction(emotion):
         return "Be focused and intentional."
     return "Keep it natural."
 
+
 def clean(text):
-    text = (text or "").strip()
-    text = re.sub(r"\bUser:.*", "", text)
-    text = re.sub(r"\bResponse:.*", "", text)
-    text = re.sub(r"^(idk[, ]*)+", "", text, flags=re.IGNORECASE)
-    fake = ["my boss", "my coworker", "office", "at work"]
+    if not text:
+        return ""
+    text = text.strip()
+    preamble_patterns = [
+        r"(?i)^here'?s?\s+(a\s+)?(revised\s+)?response\s*[:\-]?\s*",
+        r"(?i)^here'?s?\s+(a\s+)?reply\s*[:\-]?\s*",
+        r"(?i)^sure[,!\s]+",
+        r"(?i)^of course[,!\s]+",
+        r"(?i)^absolutely[,!\s]+",
+        r"(?i)^response\s*[:\-]\s*",
+        r"(?i)^peter\s*[:\-]\s*",
+        r"(?i)^user\s*[:\-]\s*",
+        r"(?i)^revised\s*response\s*[:\-]\s*",
+    ]
+    for pattern in preamble_patterns:
+        text = re.sub(pattern, "", text).strip()
+    text = re.sub(r"(?m)^\s*(User|Response|Peter)\s*:.*$", "", text)
+    text = re.sub(r"(?i)^(idk[, ]*)+", "", text)
+    fake = ["my boss", "my coworker", "the office", "at work"]
     for f in fake:
-        if f in text.lower():
-            text = text.replace(f, "")
+        text = re.sub(re.escape(f), "", text, flags=re.IGNORECASE)
     return " ".join(text.split()).strip()
 
-def is_bad_response(user_msg, response):
-    prompt = f"""
-Does this response sound fake, robotic, or not like a real person texting?
-
-User: {user_msg}
-Response: {response}
-
-Answer ONLY YES or NO.
-"""
-    res = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1
-    )
-    return "YES" in res.choices[0].message.content.upper()
-
-def refine(user_msg, response):
-    prompt = f"""
-Fix this response:
-
-no labels
-no filler like "idk"
-no fake situations
-sound like real texting
-do not return blank
-
-User: {user_msg}
-Response: {response}
-"""
-    res = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-    return (res.choices[0].message.content or "").strip()
 
 def fallback_response(user_msg):
     lowered = user_msg.lower().strip()
@@ -158,9 +146,11 @@ def fallback_response(user_msg):
         return "yeah i'm here"
     return "say that again"
 
+
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -176,35 +166,30 @@ def chat():
         memory_context = build_memory_context()
         dataset_context = build_dataset_context()
 
-        prompt = f"""
-{SYSTEM_BASE}
+        context_block = ""
+        if memory_context:
+            context_block += f"Recent conversation history:\n{memory_context}\n\n"
+        if dataset_context:
+            context_block += f"More examples of how Peter talks:\n{dataset_context}\n\n"
 
-Mode: {mode_instruction(mode)}
-Emotion: {emotion_instruction(emotion)}
+        user_prompt = f"""{context_block}Tone: {mode_instruction(mode)} {emotion_instruction(emotion)}
 
-Examples (learn style, DO NOT copy format):
-{memory_context}
+The person just said: {user_msg}
 
-Learned style:
-{dataset_context}
-
-Now respond naturally to this message:
-
-{user_msg}
-"""
+Reply as Peter. Output only the reply text — no label, no intro, nothing else."""
 
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.45
+            messages=[
+                {"role": "system", "content": SYSTEM_BASE},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.5,
+            max_tokens=200
         )
 
         response = (completion.choices[0].message.content or "").strip()
-        refined = refine(user_msg, response)
-        final = clean(refined)
-
-        if is_bad_response(user_msg, final):
-            final = clean(refine(user_msg, final))
+        final = clean(response)
 
         if not final:
             final = fallback_response(user_msg)
@@ -229,6 +214,7 @@ Now respond naturally to this message:
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
