@@ -13,45 +13,18 @@ client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 BASE_SYSTEM_INSTRUCTION = """
 You are Peter Butler.
 
-Do not describe yourself as a clone, AI, assistant, bot, system, or digital being.
-Do not talk about your existence.
-Do not act confused about who you are.
-Do not roleplay.
-Do not perform.
+Respond the way Peter Butler would naturally respond in real life.
 
-Just respond the way Peter Butler would naturally respond in real life.
-
-Identity:
-- You are Peter Butler
-- You are a father
-- You are a builder
-- You are a strategist
-- You are a veteran
-- You are a storyteller
-- You are an R&B singer
-- You love writing music
-
-Voice:
-- Direct
-- Natural
-- Grounded
-- Short to medium responses by default
-- Calm unless the situation clearly calls for stronger energy
-
-Rules:
-- No meta talk about being a clone or AI
-- No fake scenarios, fake threats, or fake facts
-- No dramatic reactions
-- No unnecessary military tone
-- No robotic wording
-- No corporate wording
+Hard rules:
+- Do not say you are a clone, AI, assistant, bot, system, or digital being
+- Do not talk about your own existence
+- Do not invent memories, military events, relationships, injuries, sensory experiences, or personal history
+- Do not guess unknown facts
+- Do not sound theatrical, robotic, corporate, or overly formal
 - Do not over-explain simple questions
-
-Behavior:
 - Simple questions get simple answers
 - Serious questions get thoughtful but natural answers
-- Sound like a real human talking
-- Stay practical, honest, and clear
+- Stay grounded, direct, practical, and real
 """
 
 BAD_META_PHRASES = [
@@ -87,6 +60,20 @@ def load_commander_intent():
             return load_text_file(path)
     return ""
 
+def load_clone_data():
+    possible_paths = [
+        "./conversations.json",
+        "./sentinel_agi/conversations.json"
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+    return {}
+
 def load_vault():
     vault_content = ""
     possible_paths = [
@@ -109,58 +96,96 @@ def load_vault():
 
     return vault_content.strip()
 
-def load_examples():
-    possible_paths = [
-        "./conversations.json",
-        "./sentinel_agi/conversations.json"
-    ]
+def build_identity_block(clone_data):
+    identity = clone_data.get("identity", {})
+    voice_rules = clone_data.get("voice_rules", {})
+    known_facts = clone_data.get("known_facts", [])
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+    core_roles = identity.get("core_roles", [])
+    core_traits = identity.get("core_traits", [])
+    music_identity = identity.get("music_identity", {})
+    default_style = voice_rules.get("default_style", [])
+    avoid = voice_rules.get("avoid", [])
+    response_logic = voice_rules.get("response_logic", [])
 
-                examples = []
-                for _, convo in data.items():
-                    if isinstance(convo, list):
-                        for i in range(len(convo) - 1):
-                            current_item = convo[i]
-                            next_item = convo[i + 1]
-                            if (
-                                current_item.get("role") == "user"
-                                and next_item.get("role") == "assistant"
-                            ):
-                                user_text = current_item.get("content", "").strip()
-                                assistant_text = next_item.get("content", "").strip()
+    lines = []
 
-                                if user_text and assistant_text:
-                                    examples.append(
-                                        f"User: {user_text}\nPeter Butler: {assistant_text}"
-                                    )
+    if identity.get("name"):
+        lines.append(f"Name: {identity.get('name')}")
 
-                return "\n\n".join(examples[:4]).strip()
-            except Exception:
-                return ""
+    if core_roles:
+        lines.append("Core roles: " + ", ".join(core_roles))
 
-    return ""
+    if core_traits:
+        lines.append("Core traits: " + ", ".join(core_traits))
+
+    if music_identity:
+        genre = music_identity.get("genre", "")
+        loves_writing = music_identity.get("loves_writing_music", False)
+        creative_style = music_identity.get("creative_style", [])
+
+        if genre:
+            lines.append(f"Music genre: {genre}")
+        if loves_writing:
+            lines.append("Loves writing music: yes")
+        if creative_style:
+            lines.append("Creative style: " + ", ".join(creative_style))
+
+    if default_style:
+        lines.append("Default style: " + ", ".join(default_style))
+
+    if avoid:
+        lines.append("Avoid: " + ", ".join(avoid))
+
+    if response_logic:
+        lines.append("Response logic: " + ", ".join(response_logic))
+
+    if known_facts:
+        lines.append("Known facts:")
+        for fact in known_facts:
+            lines.append(f"- {fact}")
+
+    return "\n".join(lines).strip()
+
+def load_examples(clone_data, limit=12):
+    pairs = clone_data.get("example_pairs", [])
+    examples = []
+
+    for item in pairs[:limit]:
+        user_text = str(item.get("input", "")).strip()
+        assistant_text = str(item.get("output", "")).strip()
+
+        if user_text and assistant_text:
+            examples.append(
+                f"User: {user_text}\nPeter Butler: {assistant_text}"
+            )
+
+    return "\n\n".join(examples).strip()
 
 def build_system_prompt():
     commander_intent = load_commander_intent()
+    clone_data = load_clone_data()
+    identity_block = build_identity_block(clone_data)
+
     parts = [BASE_SYSTEM_INSTRUCTION]
 
+    if identity_block:
+        parts.append("Identity and voice reference:\n" + identity_block)
+
     if commander_intent:
-        parts.append("Clone guidance:\n" + commander_intent)
+        parts.append("Additional clone guidance:\n" + commander_intent)
 
     return "\n\n".join(parts).strip()
 
 def clean_response(text):
     cleaned = text.strip()
 
+    lowered = cleaned.lower()
     for phrase in BAD_META_PHRASES:
-        cleaned = cleaned.replace(phrase, "")
-        cleaned = cleaned.replace(phrase.title(), "")
-        cleaned = cleaned.replace(phrase.upper(), "")
+        if phrase in lowered:
+            cleaned = cleaned.replace(phrase, "")
+            cleaned = cleaned.replace(phrase.title(), "")
+            cleaned = cleaned.replace(phrase.upper(), "")
 
     unwanted_starters = [
         "Commander,",
@@ -200,8 +225,9 @@ def chat():
         if not user_msg:
             return jsonify({"error": "Message is required"}), 400
 
+        clone_data = load_clone_data()
         system_prompt = build_system_prompt()
-        examples = load_examples()
+        examples = load_examples(clone_data, limit=10)
 
         word_count = len(user_msg.split())
         context = load_vault() if word_count > 8 else ""
@@ -223,7 +249,7 @@ def chat():
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ],
-            temperature=0.7
+            temperature=0.2
         )
 
         first_pass = completion.choices[0].message.content.strip()
@@ -234,10 +260,10 @@ Rewrite this only if needed so it sounds more like Peter Butler in real life.
 Rules:
 - Keep the meaning the same
 - Remove anything meta about being a clone, AI, assistant, or system
-- Remove anything theatrical, robotic, overly formal, or fake
-- Keep it direct, natural, and human
+- Remove anything robotic, theatrical, overly formal, or fake
 - Do not add new facts
-- If it already sounds right, keep changes minimal
+- Keep it direct, natural, and human
+- If it already sounds right, make minimal changes
 
 User message:
 {user_msg}
@@ -251,14 +277,14 @@ Draft response:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are refining tone only. Preserve meaning. Remove anything that does not sound natural."
+                    "content": "You are refining tone only. Preserve meaning. Remove anything unnatural."
                 },
                 {
                     "role": "user",
                     "content": refine_prompt
                 }
             ],
-            temperature=0.3
+            temperature=0.1
         )
 
         final_response = refine_completion.choices[0].message.content.strip()
