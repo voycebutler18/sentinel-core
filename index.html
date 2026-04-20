@@ -784,35 +784,71 @@ function setupRecognition() {
   }
   const rec = new SR();
   rec.lang = 'en-US';
-  rec.continuous = false;
+  rec.continuous = true;      // stay open — don't auto-close after one phrase
   rec.interimResults = true;
+  rec.maxAlternatives = 1;
+
   let finalTranscript = '';
-  rec.onstart = () => { finalTranscript = ''; setState('listening'); };
+  let silenceTimer = null;
+  const SILENCE_MS = 1400;    // send after 1.4s of no new speech
+
+  function clearSilence() {
+    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+  }
+  function armSilence() {
+    clearSilence();
+    silenceTimer = setTimeout(() => {
+      const text = finalTranscript.trim();
+      if (text && !isProcessing) {
+        finalTranscript = '';
+        rec.stop(); // stop cleanly — onend will NOT restart since isProcessing=true
+        sendToTwin(text);
+      }
+    }, SILENCE_MS);
+  }
+
+  rec.onstart = () => {
+    finalTranscript = '';
+    clearSilence();
+    setState('listening');
+  };
+
   rec.onresult = (e) => {
     let interim = '';
-    finalTranscript = '';
-    for (let i = 0; i < e.results.length; i++) {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
       const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) finalTranscript += t;
-      else interim += t;
+      if (e.results[i].isFinal) {
+        finalTranscript += t + ' ';
+        armSilence(); // restart silence countdown each time we get final text
+      } else {
+        interim += t;
+        clearSilence(); // still talking — reset the timer
+        armSilence();
+      }
     }
-    els.captionText.textContent = (finalTranscript + ' ' + interim).trim() || 'Listening...';
+    const display = (finalTranscript + interim).trim();
+    if (display) els.captionText.textContent = display;
   };
+
   rec.onerror = (e) => {
-    if (e.error !== 'no-speech' && e.error !== 'aborted')
-      els.captionText.textContent = 'Mic error: ' + e.error;
+    clearSilence();
+    if (e.error === 'no-speech') return; // ignore — just silence
+    if (e.error === 'aborted') return;   // we aborted intentionally
+    els.captionText.textContent = 'Mic error: ' + e.error;
   };
+
   rec.onend = () => {
-    const text = (finalTranscript || '').trim();
-    if (text) {
-      sendToTwin(text);
-    } else if (convoActive && !isProcessing) {
-      // Only restart if we're not already waiting for a response
-      try { rec.start(); } catch(_) {}
+    clearSilence();
+    // Only restart if convo still active AND we're not already processing
+    if (convoActive && !isProcessing) {
+      setTimeout(() => {
+        try { rec.start(); } catch(_) {}
+      }, 200);
     } else if (!convoActive) {
       setState('idle');
     }
   };
+
   return rec;
 }
 
