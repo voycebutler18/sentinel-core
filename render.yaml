@@ -2,12 +2,10 @@ services:
   - type: web
     name: sentinel-core
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python -c "from TTS.api import TTS; TTS(model_name='tts_models/multilingual/multi-dataset/xtts_v2')"
     startCommand: gunicorn app:app
     envVars:
       - key: GROQ_API_KEY
         sync: false
-
-      # 🔥 THIS IS THE FIX
       - key: COQUI_TOS_AGREED
         value: "1"
