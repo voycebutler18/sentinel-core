@@ -188,6 +188,15 @@ def chat():
         data = request.get_json()
         user_msg = (data.get("message") or "").strip()
         image_data = data.get("image")  # Base64 string from frontend (optional)
+        room = (data.get("room") or "living_room").strip()
+
+        # Room context descriptions fed into the prompt
+        room_context_map = {
+            "living_room": "Living Room — relaxation and creativity mode. Check what the twins are playing. Keep it chill.",
+            "kitchen":     "Kitchen — nutrition and hydration focus. If Armon is around, check his snacks. Sit-down energy.",
+            "hallway":     "Hallway — quick pass-through mode. Keep messages brief. Good for fast reminders as they walk by.",
+        }
+        room_context = room_context_map.get(room, "Home — general context.")
 
         if not user_msg and not image_data:
             return jsonify({"error": "Empty input"}), 400
@@ -210,7 +219,8 @@ def chat():
 [MESSAGE]
 {user_msg or "(user sent an image)"}
 
-The current time is {current_time_str}. Use this for context.{relay_context}
+The current time is {current_time_str}. Use this for context.
+Room context: {room_context}{relay_context}
 
 Reply as Peter. No labels. Keep it real."""
 
