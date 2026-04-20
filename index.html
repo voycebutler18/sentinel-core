@@ -464,7 +464,7 @@ async function sendToTwin(text) {
     try { data = await res.json(); } catch(_) {}
     if (!res.ok) throw new Error(data.error || ('Server ' + res.status));
 
-    const reply = data.response || '(no response)';
+    const reply = (data.response && data.response.trim()) ? data.response.trim() : 'say that again';
     els.captionText.textContent = reply;
 
     await speakText(reply);
