@@ -445,6 +445,37 @@ let mouthRafId = null;
 let synth = window.speechSynthesis;
 let speaking = false;
 
+// --- Camera / Vision ---
+const video = document.createElement('video');
+const canvas = document.createElement('canvas');
+video.setAttribute('playsinline', ''); // iOS compatibility
+let cameraStream = null;
+
+async function startCamera() {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    video.srcObject = cameraStream;
+    await video.play();
+  } catch (err) {
+    console.warn('Camera not available:', err.message);
+  }
+}
+
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+}
+
+function captureFrame() {
+  if (!cameraStream || video.readyState < 2) return null;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.7); // base64 image
+}
+
 // Pick best available voice
 function getVoice() {
   const voices = synth.getVoices();
@@ -602,10 +633,14 @@ function setupRecognition() {
 async function sendToTwin(text) {
   setState('thinking');
   try {
+    const imageData = captureFrame(); // Snap a photo as you speak
+    const payload = { message: text };
+    if (imageData) payload.image = imageData;
+
     const res = await fetch(`${BACKEND}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify(payload),
     });
     let data = {};
     try { data = await res.json(); } catch(_) {}
@@ -647,6 +682,7 @@ async function beginConversation() {
   recognition = setupRecognition();
   if (!recognition) return;
   convoActive = true;
+  startCamera(); // Start eyes when conversation begins
   els.convoBtn.textContent = '◼ End';
   els.convoBtn.classList.add('stop');
   startMicLoop();
@@ -659,6 +695,7 @@ function endConversation() {
   speaking = false;
   try { recognition && recognition.abort(); } catch(_) {}
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  stopCamera(); // Stop eyes when conversation ends
   stopMicLoop();
   stopMouthAnim();
   els.convoBtn.textContent = '⏵ Begin';
