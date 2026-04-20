@@ -10,14 +10,12 @@ from groq import Groq
 app = Flask(__name__)
 CORS(app)
 
-# Secure API connection
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 MEMORY_FILE = "memory.json"
 INTENT_FILE = "commander_intent.txt"
 RELAY_FILE = "relays.json"
 
-# SYSTEM BASE: Best friend first, always engaged, never avoidant
 SYSTEM_BASE = """You are the digital twin of Peter Butler (Voyce).
 You are a father, a musician, and someone's best friend having a real conversation.
 
@@ -43,6 +41,7 @@ VISUAL EMPATHY (when camera is active):
 - Never be clinical or over-describe what you see. One natural observation, then move into the conversation.
 - Stay cool, Chicago, and human. Always."""
 
+
 def load_file(path):
     try:
         with open(path, "r") as f:
@@ -50,34 +49,33 @@ def load_file(path):
                 return json.load(f)
             return f.read()
     except Exception:
-        return [] if path.endswith(".json") else "Commander Intent missing."
+        return [] if path.endswith(".json") else ""
 
 def save_file(path, data):
     try:
         with open(path, "w") as f:
-            # Keep history short to avoid context pollution
             json.dump(data[-50:], f, indent=2)
-    except:
+    except Exception:
         pass
 
 def build_memory_context():
-    mem = load_file(MEMORY_FILE)[-5:]
+    mem = load_file(MEMORY_FILE)
+    if not isinstance(mem, list):
+        mem = []
     lines = []
-    for item in mem:
+    for item in mem[-5:]:
         lines.append(f"User: {item.get('user', '')}")
         lines.append(f"Peter: {item.get('response', '')}")
     return "\n".join(lines).strip()
 
 def clean(text):
-    if not text: return ""
+    if not text:
+        return ""
     text = text.strip()
-    # Remove AI preambles and labels
     text = re.sub(r"(?i)^(peter|user|response|here is|sure|okay|twin|voyce)\s*[:\-]?\s*", "", text)
     return " ".join(text.split()).strip()
 
-# ── Relay System ─────────────────────────────────────────────────────────────
 
-# Maps name keywords to canonical targets
 RELAY_TARGETS = {
     "devonn":    "devonn",
     "evelynn":   "evelynn",
@@ -89,7 +87,6 @@ RELAY_TARGETS = {
 }
 
 def detect_relay_target(msg):
-    """Return the first relay target found in the message, or None."""
     msg_lower = msg.lower()
     if "tell" not in msg_lower and "let" not in msg_lower and "remind" not in msg_lower:
         return None
@@ -99,7 +96,6 @@ def detect_relay_target(msg):
     return None
 
 def save_relay(target, message):
-    """Append an undelivered relay to relays.json."""
     relays = load_file(RELAY_FILE)
     if not isinstance(relays, list):
         relays = []
@@ -111,15 +107,13 @@ def save_relay(target, message):
     })
     save_file(RELAY_FILE, relays)
 
-def get_pending_relays(target=None):
-    """Return all undelivered relays, optionally filtered by target."""
+def get_pending_relays():
     relays = load_file(RELAY_FILE)
     if not isinstance(relays, list):
         return []
-    return [r for r in relays if not r.get("delivered") and (target is None or r["target"] in (target, "kids"))]
+    return [r for r in relays if not r.get("delivered")]
 
 def mark_relays_delivered(target):
-    """Mark matching relays as delivered."""
     relays = load_file(RELAY_FILE)
     if not isinstance(relays, list):
         return
@@ -128,23 +122,18 @@ def mark_relays_delivered(target):
             r["delivered"] = True
     save_file(RELAY_FILE, relays)
 
-# ─────────────────────────────────────────────────────────────────────────────
 
 def analyze_scene(image_base64, user_msg):
-    """
-    Vision Bridge — uses Llama 3.2 Vision to read the room before responding.
-    Returns a natural scene description grounded in Commander Intent context.
-    Strips the data URL prefix if present so the model gets clean base64.
-    """
-    # Strip data URL prefix if frontend sent full data URI
-    raw_b64 = image_base64
-    if "," in raw_b64:
-        raw_b64 = raw_b64.split(",", 1)[1]
+    """Vision Bridge — always returns a string, never raises."""
+    try:
+        raw_b64 = image_base64
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
 
-    intent_context = load_file(INTENT_FILE)
+        intent_context = load_file(INTENT_FILE) or "No intent file found."
 
-    vision_prompt = f"""You are Peter Butler's digital twin (Voyce). 
-You are looking through a camera in his home. 
+        vision_prompt = f"""You are Peter Butler's digital twin (Voyce).
+You are looking through a camera in his home.
 
 COMMANDER INTENT CONTEXT:
 {intent_context}
@@ -158,9 +147,8 @@ Look at this image and answer naturally:
 Keep it brief, warm, and Chicago. This is for your own awareness before you respond to Peter.
 User message: {user_msg or '(no message, just checking in)'}"""
 
-    try:
         completion = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
+            model="llama-4-scout-17b-16e-instruct",
             messages=[
                 {
                     "role": "user",
@@ -175,8 +163,21 @@ User message: {user_msg or '(no message, just checking in)'}"""
         )
         return completion.choices[0].message.content or ""
     except Exception as e:
-        return f"(scene read failed: {e})"
+        print(f"[VISION ERROR] {e}")
+        return ""  # Non-fatal — conversation continues without scene context
 
+
+@app.route("/ping")
+def ping():
+    """Diagnostic — visit https://sentinel-core-mlb4.onrender.com/ping to confirm this version is live."""
+    return jsonify({
+        "status": "ok",
+        "version": "v3-fixed",
+        "groq_key_set": bool(os.environ.get("GROQ_API_KEY")),
+        "intent_file_exists": os.path.exists(INTENT_FILE),
+        "memory_file_exists": os.path.exists(MEMORY_FILE),
+        "time_chicago": datetime.now(ZoneInfo("America/Chicago")).strftime("%I:%M %p on %A, %B %d, %Y")
+    })
 
 @app.route("/")
 def index():
@@ -185,12 +186,14 @@ def index():
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         user_msg = (data.get("message") or "").strip()
-        image_data = data.get("image")  # Base64 string from frontend (optional)
+        image_data = data.get("image")
         room = (data.get("room") or "living_room").strip()
 
-        # Room context descriptions fed into the prompt
+        if not user_msg and not image_data:
+            return jsonify({"error": "Empty input"}), 400
+
         room_context_map = {
             "living_room": "Living Room — relaxation and creativity mode. Check what the twins are playing. Keep it chill.",
             "kitchen":     "Kitchen — nutrition and hydration focus. If Armon is around, check his snacks. Sit-down energy.",
@@ -198,35 +201,24 @@ def chat():
         }
         room_context = room_context_map.get(room, "Home — general context.")
 
-        if not user_msg and not image_data:
-            return jsonify({"error": "Empty input"}), 400
-
-        # Load the Soul (Intent) and the History (Memory)
-        intent_context = load_file(INTENT_FILE)
+        intent_context = load_file(INTENT_FILE) or "No special context."
         memory_context = build_memory_context()
+        current_time_str = datetime.now(ZoneInfo("America/Chicago")).strftime("%I:%M %p on %A, %B %d, %Y")
 
-        # Get current Central Time
-        central_time = datetime.now(ZoneInfo('America/Chicago'))
-        current_time_str = central_time.strftime("%I:%M %p on %A, %B %d, %Y")
-
-        # BUG FIX 1 & 2: Relay intercept must run BEFORE text_prompt is built,
-        # and relay_context must be initialized before text_prompt references it.
-
-        # --- Relay intercept: "tell/remind my kids/Devonn..." ---
+        # Relay intercept — BEFORE text_prompt
         relay_target = detect_relay_target(user_msg)
         if relay_target:
             save_relay(relay_target, user_msg)
             target_label = relay_target if relay_target != "kids" else "the kids"
             return jsonify({"response": f"got it, i'll let {target_label} know when i see them."})
 
-        # Build relay_context BEFORE text_prompt (was a NameError crash before)
+        # relay_context — BEFORE text_prompt
         pending = get_pending_relays()
         relay_context = ""
         if pending:
             relay_lines = [f'- [{r["target"]}] {r["message"]}' for r in pending]
             relay_context = "\n\n[PENDING RELAY MESSAGES — deliver these naturally if the right person is present]\n" + "\n".join(relay_lines)
 
-        # Build the text portion of the prompt
         text_prompt = f"""[COMMANDER INTENT]
 {intent_context}
 
@@ -241,49 +233,44 @@ Room context: {room_context}{relay_context}
 
 Reply as Peter. No labels. Keep it real."""
 
-        # --- Vision path: image included ---
+        # Vision path
         if image_data:
-            # Step 1: Vision Bridge — analyze the scene first
             scene_context = analyze_scene(image_data, user_msg)
 
-            # BUG FIX 3: Mark relays delivered when the scene confirms the right person is present
-            if pending:
+            if pending and scene_context:
                 scene_lower = scene_context.lower()
                 for target in set(r["target"] for r in pending):
-                    names_to_check = ["kids", target]  # "kids" relays deliver to anyone
-                    if any(name in scene_lower for name in names_to_check):
+                    if target in scene_lower or "kids" in scene_lower:
                         mark_relays_delivered(target)
 
-            # Step 2: Build enriched prompt with scene awareness
-            enriched_prompt = f"""{text_prompt}
+            if scene_context:
+                text_prompt += f"""
 
 [WHAT YOU SEE IN THE ROOM RIGHT NOW]
 {scene_context}
 
-Use this visual context naturally in your response — like a friend who can actually see you.
-Don't narrate the image like a description. Just respond as Peter would if he was there."""
+Use this visual context naturally — like a friend who can actually see you. Don't narrate the image. Just respond as Peter would."""
 
-            # Ensure proper data URL format for final completion
             if not image_data.startswith("data:"):
                 image_data = f"data:image/jpeg;base64,{image_data}"
 
             completion = client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
+                model="llama-4-scout-17b-16e-instruct",
                 messages=[
                     {"role": "system", "content": SYSTEM_BASE},
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": enriched_prompt},
+                            {"type": "text", "text": text_prompt},
                             {"type": "image_url", "image_url": {"url": image_data}}
                         ]
                     }
                 ],
                 temperature=0.7,
-                max_tokens=300  # More room for visual responses
+                max_tokens=300
             )
 
-        # --- Text-only path ---
+        # Text-only path
         else:
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
@@ -298,14 +285,19 @@ Don't narrate the image like a description. Just respond as Peter would if he wa
         raw_response = completion.choices[0].message.content or ""
         final_response = clean(raw_response)
 
-        # Update memory
+        if not final_response:
+            final_response = "i'm here. say that again?"
+
         mem = load_file(MEMORY_FILE)
+        if not isinstance(mem, list):
+            mem = []
         mem.append({"user": user_msg or "[image]", "response": final_response})
         save_file(MEMORY_FILE, mem)
 
         return jsonify({"response": final_response})
 
     except Exception as e:
+        print(f"[CHAT ERROR] {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
