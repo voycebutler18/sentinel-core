@@ -77,8 +77,9 @@ def chat():
     try:
         data = request.get_json()
         user_msg = (data.get("message") or "").strip()
+        image_data = data.get("image")  # Base64 string from frontend (optional)
 
-        if not user_msg:
+        if not user_msg and not image_data:
             return jsonify({"error": "Empty input"}), 400
 
         # Load the Soul (Intent) and the History (Memory)
@@ -89,36 +90,60 @@ def chat():
         central_time = datetime.now(ZoneInfo('America/Chicago'))
         current_time_str = central_time.strftime("%I:%M %p on %A, %B %d, %Y")
 
-        # Constructing the superhuman prompt
-        user_prompt = f"""[COMMANDER INTENT]
+        # Build the text portion of the prompt
+        text_prompt = f"""[COMMANDER INTENT]
 {intent_context}
 
 [RECENT TALK]
 {memory_context}
 
 [MESSAGE]
-{user_msg}
+{user_msg or "(user sent an image)"}
 
 The current time is {current_time_str}. Use this for context.
 
 Reply as Peter. No labels. Keep it real."""
 
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": SYSTEM_BASE},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.7, # Warmer for natural best-friend conversation
-            max_tokens=150
-        )
+        # --- Vision path: image included ---
+        if image_data:
+            # Ensure proper data URL format
+            if not image_data.startswith("data:"):
+                image_data = f"data:image/jpeg;base64,{image_data}"
+
+            completion = client.chat.completions.create(
+                model="llama-3.2-11b-vision-preview",
+                messages=[
+                    {"role": "system", "content": SYSTEM_BASE},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": text_prompt},
+                            {"type": "image_url", "image_url": {"url": image_data}}
+                        ]
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=300  # More room for visual descriptions
+            )
+
+        # --- Text-only path ---
+        else:
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": SYSTEM_BASE},
+                    {"role": "user", "content": text_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=150
+            )
 
         raw_response = completion.choices[0].message.content or ""
         final_response = clean(raw_response)
 
         # Update memory
         mem = load_file(MEMORY_FILE)
-        mem.append({"user": user_msg, "response": final_response})
+        mem.append({"user": user_msg or "[image]", "response": final_response})
         save_file(MEMORY_FILE, mem)
 
         return jsonify({"response": final_response})
