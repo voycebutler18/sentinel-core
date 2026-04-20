@@ -119,16 +119,40 @@
     background: #051322;
   }
   .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .blink {
+  /* Eyes */
+  .eyes {
     position: absolute; left: 0; right: 0;
-    top: 36%; height: 7%;
-    background: #051322;
-    transform: scaleY(0);
-    transform-origin: center;
-    transition: transform 100ms ease;
-    pointer-events: none;
+    top: 33%; height: 12%;
+    display: flex; align-items: center; justify-content: center;
+    gap: 18%; pointer-events: none; z-index: 3;
   }
-  .blink.on { transform: scaleY(1); }
+  .eye {
+    width: 18%; aspect-ratio: 1/1;
+    border-radius: 50%;
+    background: #051322;
+    border: 2px solid rgba(95,232,255,0.7);
+    box-shadow: 0 0 10px rgba(95,232,255,0.4), inset 0 0 8px rgba(95,232,255,0.15);
+    position: relative;
+    overflow: hidden;
+    transition: transform 120ms ease;
+  }
+  .eye.closed { transform: scaleY(0.08); }
+  .pupil {
+    position: absolute;
+    width: 52%; height: 52%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #5fe8ff, #0a3a5c);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    transition: transform 80ms ease;
+  }
+  .pupil-dot {
+    position: absolute;
+    width: 30%; height: 30%;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.85);
+    top: 18%; left: 18%;
+  }
   .mouth {
     position: absolute;
     left: 50%; top: 70%;
@@ -380,7 +404,10 @@
       <div class="ring pulse"></div>
       <div class="avatar">
         <img src="twin-avatar.jpg" alt="Digital Twin" onerror="this.style.display='none'" />
-        <div class="blink" id="blink"></div>
+        <div class="eyes" id="eyes">
+          <div class="eye" id="eye-left"><div class="pupil" id="pupil-left"><div class="pupil-dot"></div></div></div>
+          <div class="eye" id="eye-right"><div class="pupil" id="pupil-right"><div class="pupil-dot"></div></div></div>
+        </div>
         <div class="mouth" id="mouth"></div>
       </div>
     </div>
@@ -427,7 +454,10 @@ const els = {
   captionWho: document.getElementById('caption-who'),
   captionText: document.getElementById('caption-text'),
   mouth: document.getElementById('mouth'),
-  blink: document.getElementById('blink'),
+  eyeLeft: document.getElementById('eye-left'),
+  eyeRight: document.getElementById('eye-right'),
+  pupilLeft: document.getElementById('pupil-left'),
+  pupilRight: document.getElementById('pupil-right'),
   convoBtn: document.getElementById('convo-btn'),
   userIco: document.getElementById('user-ico'),
   twinIco: document.getElementById('twin-ico'),
@@ -564,17 +594,167 @@ function stopMicLoop() {
   els.userLevel.style.width = '0%';
 }
 
-// Blink
-function scheduleBlink() {
+// Eye blink
+function blinkEyes(cb) {
+  els.eyeLeft.classList.add('closed');
+  els.eyeRight.classList.add('closed');
   setTimeout(() => {
-    els.blink.classList.add('on');
-    setTimeout(() => {
-      els.blink.classList.remove('on');
-      scheduleBlink();
-    }, 110);
-  }, 2200 + Math.random() * 3500);
+    els.eyeLeft.classList.remove('closed');
+    els.eyeRight.classList.remove('closed');
+    cb && cb();
+  }, 100 + Math.random() * 60);
+}
+
+function scheduleBlink() {
+  const wait = 2000 + Math.random() * 4000;
+  setTimeout(() => {
+    blinkEyes(() => {
+      if (Math.random() < 0.2) {
+        setTimeout(() => blinkEyes(scheduleBlink), 150);
+      } else {
+        scheduleBlink();
+      }
+    });
+  }, wait);
 }
 scheduleBlink();
+
+// ── Cross-browser face-tracking eye system (BlazeFace via TensorFlow.js) ───
+// Works on Chrome, Edge, Safari, Firefox, iPad, Android — any device with a camera
+// BlazeFace is a lightweight ML model (~50KB) that runs on-device at 60fps
+(function eyeTracking() {
+  let cx = 0, cy = 0;          // current smoothed pupil offset (px)
+  let tx = 0, ty = 0;          // target pupil offset
+  let blazeModel = null;       // BlazeFace model instance
+  let trackingActive = false;
+  let detecting = false;       // prevent concurrent detect calls
+  const DETECT_INTERVAL = 100; // ms between face detection passes
+  const MAX_OFFSET = 11;       // max px pupil travels from center
+
+  // ── Smooth animation tick — always running ──────────────────────────────
+  function tick() {
+    cx += (tx - cx) * 0.07;
+    cy += (ty - cy) * 0.07;
+    const t = `translate(calc(-50% + ${cx.toFixed(1)}px), calc(-50% + ${cy.toFixed(1)}px))`;
+    els.pupilLeft.style.transform = t;
+    els.pupilRight.style.transform = t;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ── Face position → pupil offset ────────────────────────────────────────
+  // BlazeFace returns predictions with .topLeft and .bottomRight
+  function predToOffset(pred, vw, vh) {
+    const faceCx = (pred.topLeft[0] + pred.bottomRight[0]) / 2;
+    const faceCy = (pred.topLeft[1] + pred.bottomRight[1]) / 2;
+    const nx = (faceCx / vw - 0.5) * 2;   // -1..1
+    const ny = (faceCy / vh - 0.5) * 2;
+    return {
+      x: -nx * MAX_OFFSET,        // invert: face goes right → eyes look right
+      y:  ny * MAX_OFFSET * 0.55
+    };
+  }
+
+  // ── Detection loop ───────────────────────────────────────────────────────
+  async function detectLoop() {
+    if (!trackingActive) return;
+    if (detecting || !blazeModel || !cameraStream || video.readyState < 2) {
+      setTimeout(detectLoop, DETECT_INTERVAL);
+      return;
+    }
+    detecting = true;
+    try {
+      const preds = await blazeModel.estimateFaces(video, false);
+      if (preds.length > 0) {
+        const { x, y } = predToOffset(preds[0], video.videoWidth, video.videoHeight);
+        tx = x; ty = y;
+      } else {
+        // No face — drift gently back toward center
+        tx *= 0.88; ty *= 0.88;
+      }
+    } catch(e) { /* ignore frame errors */ }
+    detecting = false;
+    setTimeout(detectLoop, DETECT_INTERVAL);
+  }
+
+  // ── Idle drift fallback (before model loads or if loading fails) ─────────
+  let idleDriftRunning = false;
+  function startIdleDrift() {
+    if (idleDriftRunning) return;
+    idleDriftRunning = true;
+    function newTarget() {
+      if (trackingActive && blazeModel) return; // model loaded — stop drift
+      tx = (Math.random() - 0.5) * MAX_OFFSET * 1.8;
+      ty = (Math.random() - 0.5) * MAX_OFFSET * 1.3;
+      setTimeout(newTarget, 2000 + Math.random() * 2500);
+    }
+    newTarget();
+  }
+
+  // ── Load BlazeFace model ─────────────────────────────────────────────────
+  async function loadModel() {
+    try {
+      // TF.js + BlazeFace — both from CDN, ~200KB total, runs on any browser
+      if (!window.tf) {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      if (!window.blazeface) {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js';
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      blazeModel = await window.blazeface.load();
+      idleDriftRunning = false; // model ready — real tracking takes over
+      if (trackingActive) detectLoop();
+    } catch(e) {
+      // If CDN blocked or model fails, fall back to idle drift permanently
+      startIdleDrift();
+    }
+  }
+
+  // Start loading model immediately (background, non-blocking)
+  startIdleDrift(); // run drift while model loads
+  loadModel();
+
+  // ── Hook into camera start/stop ──────────────────────────────────────────
+  const _startCamera = startCamera;
+  startCamera = async function() {
+    await _startCamera();
+    trackingActive = true;
+    if (blazeModel) detectLoop();
+    // if model still loading, detectLoop() will start when camera activates
+  };
+
+  const _stopCamera = stopCamera;
+  stopCamera = function() {
+    trackingActive = false;
+    tx = 0; ty = 0; // eyes return to center
+    _stopCamera();
+  };
+})();
+// ─────────────────────────────────────────────────────────────────────────────
+
+// While speaking — pupils dilate slightly and drift faster
+const _startMouth_eyes = startMouthAnim;
+startMouthAnim = function() {
+  _startMouth_eyes();
+  els.pupilLeft.style.width = els.pupilLeft.style.height = '62%';
+  els.pupilRight.style.width = els.pupilRight.style.height = '62%';
+};
+const _stopMouth_eyes = stopMouthAnim;
+stopMouthAnim = function() {
+  _stopMouth_eyes();
+  els.pupilLeft.style.width = els.pupilLeft.style.height = '52%';
+  els.pupilRight.style.width = els.pupilRight.style.height = '52%';
+};
 
 // Speech synthesis speak
 function speakText(text) {
@@ -744,31 +924,7 @@ setState('idle');
   };
 
   /* --- Variable blinking (sometimes double-blink, sometimes long pause) --- */
-  function holoBlinkOnce(cb) {
-    els.blink.classList.add('on');
-    setTimeout(() => {
-      els.blink.classList.remove('on');
-      cb && cb();
-    }, 90 + Math.random() * 70);
-  }
-  function holoScheduleBlink() {
-    const roll = Math.random();
-    let wait;
-    if (roll < 0.15)      wait = 600  + Math.random() * 400;   // quick re-blink
-    else if (roll < 0.75) wait = 2200 + Math.random() * 2800;  // normal
-    else                  wait = 5500 + Math.random() * 3500;  // long stare
-    setTimeout(() => {
-      holoBlinkOnce(() => {
-        if (Math.random() < 0.22) {
-          // double-blink
-          setTimeout(() => holoBlinkOnce(holoScheduleBlink), 140);
-        } else {
-          holoScheduleBlink();
-        }
-      });
-    }, wait);
-  }
-  holoScheduleBlink();
+  // holoEnhancements: blink already handled by scheduleBlink() above — skip duplicate
 
   /* --- Ambient listening: pulse ring reacts to mic level --- */
   const _startMic = startMicLoop;
