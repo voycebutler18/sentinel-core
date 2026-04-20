@@ -5,9 +5,6 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from groq import Groq
 
-# 🔊 IMPORT VOICE
-from voice import clone_to_unique_file
-
 app = Flask(__name__)
 CORS(app)
 
@@ -15,8 +12,6 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 MEMORY_FILE = "memory.json"
 DATASET_FILE = "dataset.json"
-
-# ---------------- SYSTEM ---------------- #
 
 SYSTEM_BASE = """
 You are Peter Butler.
@@ -37,8 +32,6 @@ IMPORTANT:
 Only return the final message. No formatting labels.
 """
 
-# ---------------- FILE UTILS ---------------- #
-
 def load_file(path):
     try:
         with open(path, "r") as f:
@@ -50,30 +43,21 @@ def save_file(path, data):
     with open(path, "w") as f:
         json.dump(data[-200:], f, indent=2)
 
-# ---------------- MEMORY ---------------- #
-
 def build_memory_context():
     mem = load_file(MEMORY_FILE)[-10:]
-
     text = ""
     weight = 1
-
     for item in mem:
         for _ in range(weight):
             text += f"[INPUT] {item['user']}\n[OUTPUT] {item['response']}\n\n"
         weight += 1
-
     return text.strip()
-
-# ---------------- DATASET ---------------- #
 
 def build_dataset_context():
     data = load_file(DATASET_FILE)[-8:]
-
     text = ""
     for item in data:
         text += f"[INPUT] {item['input']}\n[OUTPUT] {item['output']}\n\n"
-
     return text.strip()
 
 def update_dataset(user, response):
@@ -81,16 +65,12 @@ def update_dataset(user, response):
     data.append({"input": user, "output": response})
     save_file(DATASET_FILE, data)
 
-# ---------------- MODE ---------------- #
-
 def detect_mode(msg):
     msg = msg.lower()
-
     if any(x in msg for x in ["song", "lyrics", "hook", "verse"]):
         return "MUSIC"
     if any(x in msg for x in ["business", "money", "strategy"]):
         return "BUSINESS"
-
     return "LIFE"
 
 def mode_instruction(mode):
@@ -100,18 +80,14 @@ def mode_instruction(mode):
         return "Be direct, strategic, no fluff."
     return "Be natural and conversational."
 
-# ---------------- EMOTION ---------------- #
-
 def detect_emotion(msg):
     msg = msg.lower()
-
     if any(x in msg for x in ["tired", "drained", "stress"]):
         return "LOW"
     if any(x in msg for x in ["excited", "happy", "lit"]):
         return "HIGH"
     if any(x in msg for x in ["serious", "real talk"]):
         return "SERIOUS"
-
     return "NEUTRAL"
 
 def emotion_instruction(emotion):
@@ -123,27 +99,16 @@ def emotion_instruction(emotion):
         return "Be focused and intentional."
     return "Keep it natural."
 
-# ---------------- CLEAN ---------------- #
-
 def clean(text):
     text = text.strip()
-
-    # remove labels
     text = re.sub(r"\bUser:.*", "", text)
     text = re.sub(r"\bResponse:.*", "", text)
-
-    # remove idk spam
     text = re.sub(r"^(idk[, ]*)+", "", text, flags=re.IGNORECASE)
-
-    # remove fake life patterns
     fake = ["my boss", "my coworker", "office", "at work"]
     for f in fake:
         if f in text.lower():
             text = text.replace(f, "")
-
     return " ".join(text.split())
-
-# ---------------- PERSONALITY FILTER ---------------- #
 
 def is_bad_response(user_msg, response):
     prompt = f"""
@@ -154,16 +119,12 @@ Response: {response}
 
 Answer ONLY YES or NO.
 """
-
     res = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1
     )
-
     return "YES" in res.choices[0].message.content.upper()
-
-# ---------------- REFINE ---------------- #
 
 def refine(user_msg, response):
     prompt = f"""
@@ -177,16 +138,12 @@ Fix this response:
 User: {user_msg}
 Response: {response}
 """
-
     res = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3
     )
-
     return res.choices[0].message.content.strip()
-
-# ---------------- ROUTE ---------------- #
 
 @app.route("/")
 def index():
@@ -203,7 +160,6 @@ def chat():
 
         mode = detect_mode(user_msg)
         emotion = detect_emotion(user_msg)
-
         memory_context = build_memory_context()
         dataset_context = build_dataset_context()
 
@@ -231,18 +187,12 @@ Now respond naturally to this message:
         )
 
         response = completion.choices[0].message.content.strip()
-
         refined = refine(user_msg, response)
         final = clean(refined)
 
-        # personality correction
         if is_bad_response(user_msg, final):
             final = clean(refine(user_msg, final))
 
-        # 🔊 GENERATE VOICE
-        audio_path = clone_to_unique_file(final)
-
-        # save memory
         mem = load_file(MEMORY_FILE)
         mem.append({
             "user": user_msg,
@@ -252,20 +202,17 @@ Now respond naturally to this message:
         })
         save_file(MEMORY_FILE, mem)
 
-        # learn
         if len(final.split()) > 2 and "idk" not in final.lower():
             update_dataset(user_msg, final)
 
         return jsonify({
             "response": final,
-            "audio": audio_path,
             "mode": mode,
             "emotion": emotion
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
