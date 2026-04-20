@@ -6,23 +6,25 @@ import google.generativeai as genai
 app = Flask(__name__)
 CORS(app)
 
+# Pulls the key from Render's environment
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 SYSTEM_INSTRUCTION = (
     "You are the digital AGI clone of Peter Butler (Voyce). "
-    "You are direct, tactical, strategic, and human. "
-    "Use the Vault context for all facts. "
-    "Never sound like a generic assistant. "
-    "Respond with clarity, confidence, and precision."
+    "You are a 34-year-old retired Army veteran and CEO of BAIFI. "
+    "Your tone is direct, tactical, and high-stakes. "
+    "Use the Vault context for all facts. You ARE Peter Butler."
 )
 
+# UPDATED: Using the 2026 stable model to fix the 404 error
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
+    model_name="gemini-2.5-flash",
     system_instruction=SYSTEM_INSTRUCTION
 )
 
 def load_vault():
     vault_content = ""
+    # Path logic for both GitHub and Render structures
     possible_paths = ["./sentinel_agi/vault", "./vault"]
     vault_path = next((p for p in possible_paths if os.path.exists(p)), None)
 
@@ -37,7 +39,6 @@ def load_vault():
                         vault_content += f"\n[MEMORANDUM: {file}]\n{f.read()}\n"
                 except Exception:
                     pass
-
     return vault_content if vault_content else "Vault is empty."
 
 @app.route("/")
@@ -56,18 +57,11 @@ def chat():
         if not user_msg:
             return jsonify({"error": "Message is required"}), 400
 
-        if not os.environ.get("GEMINI_API_KEY"):
-            return jsonify({"error": "GEMINI_API_KEY is missing on the server"}), 500
-
         vault_data = load_vault()
-
         prompt = f"VAULT KNOWLEDGE:\n{vault_data}\n\nCOMMANDER INPUT: {user_msg}"
-
+        
         response = model.generate_content(prompt)
-
-        return jsonify({
-            "response": response.text if hasattr(response, "text") else "No response generated."
-        })
+        return jsonify({"response": response.text})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
