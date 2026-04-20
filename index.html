@@ -1,367 +1,653 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BAIFI SENTINEL CORE</title>
-    <style>
-        body {
-            background: #0a0a0a;
-            color: #00ff41;
-            font-family: 'Courier New', Courier, monospace;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            margin: 0;
-        }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VOYCE // Digital Twin</title>
+<style>
+  :root {
+    --bg-0: #04070f;
+    --bg-1: #0a1426;
+    --hud: #5fe8ff;
+    --hud-dim: rgba(95, 232, 255, 0.4);
+    --user: #ff9f6b;
+    --text: #e8f6ff;
+    --muted: #7a96b3;
+  }
 
-        .status {
-            font-size: 0.8em;
-            color: #555;
-            text-align: center;
-            padding: 8px;
-            border-bottom: 1px solid #222;
-        }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%; width: 100%;
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+    overflow: hidden;
+  }
 
-        #main {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            min-height: 0;
-        }
+  /* Background */
+  .bg {
+    position: fixed; inset: 0; z-index: 0;
+    background:
+      radial-gradient(ellipse at 50% 30%, rgba(95,232,255,0.18), transparent 60%),
+      radial-gradient(ellipse at 50% 90%, rgba(255,159,107,0.06), transparent 55%),
+      linear-gradient(180deg, #04070f 0%, #0a1426 100%);
+    transition: background 1.2s ease;
+  }
+  .bg.tactical {
+    background:
+      radial-gradient(ellipse at 50% 50%, rgba(95,232,255,0.28), transparent 60%),
+      linear-gradient(180deg, #03101c 0%, #04223a 100%);
+  }
+  .grid {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(95,232,255,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(95,232,255,0.05) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at center, #000 30%, transparent 78%);
+  }
 
-        #chat-window {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            border-bottom: 1px solid #333;
-        }
+  /* Layout */
+  .hud {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column;
+    height: 100vh; width: 100vw;
+    padding: 20px;
+  }
 
-        .message {
-            margin-bottom: 15px;
-            line-height: 1.5;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-        }
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px;
+    border: 1px solid var(--hud-dim);
+    background: rgba(10, 20, 38, 0.5);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--hud);
+  }
+  .brand { font-weight: 700; }
+  .state-pill {
+    color: var(--text);
+    padding: 4px 14px;
+    border: 1px solid var(--hud-dim);
+    border-radius: 999px;
+    font-size: 10px;
+  }
+  .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; background: #2a3f5a;
+    margin-right: 10px; vertical-align: middle;
+    transition: all 200ms ease;
+  }
+  .dot.user { background: var(--user); box-shadow: 0 0 12px var(--user); }
+  .dot.twin { background: var(--hud); box-shadow: 0 0 12px var(--hud); }
+  .dot.warn { background: #ffd166; box-shadow: 0 0 12px #ffd166; }
 
-        .user {
-            color: #fff;
-            font-weight: bold;
-        }
+  /* Stage = the whole middle area, just avatar */
+  .stage {
+    flex: 1;
+    position: relative;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    margin: 20px 0;
+  }
 
-        .sentinel {
-            color: #00ff41;
-        }
+  .avatar-wrap {
+    position: relative;
+    width: min(440px, 50vh);
+    aspect-ratio: 1 / 1;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ring {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(95,232,255,0.25);
+  }
+  .ring.r2 { inset: -28px; border-color: rgba(95,232,255,0.15); }
+  .ring.r3 { inset: -60px; border-color: rgba(95,232,255,0.08); }
+  .ring.pulse { animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.6; }
+    50%      { transform: scale(1.05); opacity: 1; }
+  }
+  .breathe { animation: breathe 5s ease-in-out infinite; }
+  @keyframes breathe {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
 
-        .thinking {
-            color: #666;
-            font-style: italic;
-        }
+  .avatar {
+    position: relative;
+    width: 86%; height: 86%;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--hud);
+    box-shadow:
+      0 0 50px rgba(95,232,255,0.5),
+      inset 0 0 50px rgba(95,232,255,0.18);
+    background: #051322;
+  }
+  .avatar img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
 
-        .error {
-            color: #ff4d4d;
-        }
+  /* Blink overlay across the eyes */
+  .blink {
+    position: absolute; left: 0; right: 0;
+    top: 36%; height: 7%;
+    background: #051322;
+    transform: scaleY(0);
+    transform-origin: center;
+    transition: transform 100ms ease;
+    pointer-events: none;
+  }
+  .blink.on { transform: scaleY(1); }
 
-        #controls {
-            padding: 16px;
-            background: #111;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
+  /* Animated mouth */
+  .mouth {
+    position: absolute;
+    left: 50%; top: 70%;
+    transform: translate(-50%, -50%);
+    width: 22%; height: 4%;
+    background: #1a0a14;
+    border-radius: 50%;
+    box-shadow:
+      inset 0 -4px 10px rgba(0,0,0,0.7),
+      0 0 18px rgba(95,232,255,0.5);
+    transition: height 60ms linear, width 60ms linear;
+    pointer-events: none;
+  }
+  .mouth::after {
+    content: "";
+    position: absolute;
+    inset: 18% 22%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(255,180,140,0.3), transparent 70%);
+  }
 
-        #input-row {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
+  /* Caption — large, readable, never cut off */
+  .caption {
+    margin-top: 28px;
+    text-align: center;
+    max-width: 720px;
+    padding: 0 20px;
+    min-height: 64px;
+  }
+  .caption .who {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 0.4em;
+    color: var(--hud);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+  .caption.user .who { color: var(--user); }
+  .caption .text {
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--text);
+    text-shadow: 0 0 14px rgba(95,232,255,0.2);
+  }
 
-        #user-input {
-            flex: 1;
-            background: #000;
-            border: 1px solid #00ff41;
-            color: #00ff41;
-            padding: 12px;
-            outline: none;
-            font-family: inherit;
-            font-size: 16px;
-        }
+  /* Footer = mic indicators + button */
+  .footer {
+    display: flex; align-items: center; justify-content: center;
+    gap: 28px;
+    padding: 18px 24px;
+    border: 1px solid var(--hud-dim);
+    background: rgba(10, 20, 38, 0.55);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+  }
 
-        button {
-            background: #00ff41;
-            color: #000;
-            border: none;
-            padding: 12px 18px;
-            cursor: pointer;
-            font-weight: bold;
-            font-family: inherit;
-            min-width: 90px;
-        }
+  .mic-card {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    min-width: 72px;
+  }
+  .mic-ico {
+    width: 52px; height: 52px; border-radius: 50%;
+    border: 2px solid #2a3f5a;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(95,232,255,0.04);
+    transition: all 200ms ease;
+  }
+  .mic-ico svg { width: 22px; height: 22px; color: #6a87a3; transition: color 200ms ease; }
+  .mic-ico.user-on {
+    border-color: var(--user);
+    box-shadow: 0 0 18px rgba(255,159,107,0.6);
+  }
+  .mic-ico.user-on svg { color: var(--user); }
+  .mic-ico.twin-on {
+    border-color: var(--hud);
+    box-shadow: 0 0 18px rgba(95,232,255,0.6);
+  }
+  .mic-ico.twin-on svg { color: var(--hud); }
+  .mic-lbl {
+    font-size: 9px;
+    letter-spacing: 0.35em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .level {
+    width: 56px; height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px; overflow: hidden;
+  }
+  .level .fill {
+    height: 100%; width: 0%;
+    transition: width 80ms linear;
+  }
+  .level.user .fill { background: var(--user); }
+  .level.twin .fill { background: var(--hud); }
 
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
+  .primary-btn {
+    background: transparent;
+    border: 2px solid var(--hud);
+    color: var(--hud);
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    padding: 16px 36px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 200ms ease;
+    box-shadow: 0 0 22px rgba(95,232,255,0.35);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .primary-btn:hover { background: rgba(95,232,255,0.12); transform: translateY(-1px); }
+  .primary-btn.stop {
+    border-color: var(--user); color: var(--user);
+    box-shadow: 0 0 22px rgba(255,159,107,0.35);
+  }
 
-        #voice-row {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
+  /* Iframe-blocked notice */
+  .notice {
+    position: fixed;
+    top: 88px; left: 50%; transform: translateX(-50%);
+    background: rgba(255, 209, 102, 0.12);
+    border: 1px solid rgba(255, 209, 102, 0.5);
+    color: #ffd166;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+    display: none;
+  }
+  .notice.show { display: block; }
 
-        .secondary-btn {
-            background: #1b1b1b;
-            color: #00ff41;
-            border: 1px solid #00ff41;
-        }
-
-        .listening {
-            box-shadow: 0 0 0 2px #00ff41 inset;
-        }
-
-        #voice-status {
-            font-size: 0.9em;
-            color: #888;
-        }
-
-        audio {
-            width: 100%;
-            max-width: 420px;
-            background: #000;
-        }
-    </style>
+  @media (max-width: 600px) {
+    .topbar { font-size: 9px; padding: 10px 12px; }
+    .topbar > div:last-child { display: none; }
+    .caption .text { font-size: 16px; }
+    .primary-btn { padding: 14px 22px; font-size: 11px; letter-spacing: 0.25em; }
+    .footer { gap: 14px; padding: 14px; }
+  }
+</style>
 </head>
 <body>
-    <div class="status">SENTINEL-CORE V1.0 | ENCRYPTION ACTIVE | GROQ + VOICE ACTIVE</div>
 
-    <div id="main">
-        <div id="chat-window">
-            <div class="message sentinel">🛡️ SENTINEL ONLINE. Talk to me.</div>
-        </div>
+<div class="bg" id="bg"></div>
+<div class="grid"></div>
 
-        <div id="controls">
-            <div id="input-row">
-                <input
-                    type="text"
-                    id="user-input"
-                    placeholder="Type or use the mic..."
-                    autocomplete="off"
-                >
-                <button id="send-button">SEND</button>
-            </div>
+<div class="notice" id="notice">⚠ Open this file directly in Chrome to use the microphone.</div>
 
-            <div id="voice-row">
-                <button id="mic-button" class="secondary-btn">🎤 MIC</button>
-                <button id="stop-audio-button" class="secondary-btn">STOP AUDIO</button>
-                <span id="voice-status">Voice idle</span>
-            </div>
+<div class="hud">
 
-            <audio id="response-audio" controls></audio>
-        </div>
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="brand"><span class="dot" id="status-dot"></span>VOYCE</div>
+    <div class="state-pill" id="state-label">STANDBY</div>
+    <div>v2.1</div>
+  </div>
+
+  <!-- STAGE -->
+  <main class="stage">
+    <div class="avatar-wrap breathe">
+      <div class="ring r3"></div>
+      <div class="ring r2"></div>
+      <div class="ring pulse"></div>
+
+      <div class="avatar">
+        <img src="twin-avatar.jpg" alt="Digital Twin" />
+        <div class="blink" id="blink"></div>
+        <div class="mouth" id="mouth"></div>
+      </div>
     </div>
 
-    <script>
-        const BACKEND = "https://sentinel-core-mlb4.onrender.com";
+    <div class="caption" id="caption">
+      <span class="who" id="caption-who">TWIN ONLINE</span>
+      <span class="text" id="caption-text">Tap "Begin" and just talk to me.</span>
+    </div>
+  </main>
 
-        const chatWindow = document.getElementById("chat-window");
-        const input = document.getElementById("user-input");
-        const sendButton = document.getElementById("send-button");
-        const micButton = document.getElementById("mic-button");
-        const stopAudioButton = document.getElementById("stop-audio-button");
-        const voiceStatus = document.getElementById("voice-status");
-        const responseAudio = document.getElementById("response-audio");
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="mic-card">
+      <div class="mic-ico" id="user-ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>
+        </svg>
+      </div>
+      <div class="level user"><div class="fill" id="user-level"></div></div>
+      <div class="mic-lbl">You</div>
+    </div>
 
-        let recognition = null;
-        let listening = false;
+    <button class="primary-btn" id="convo-btn">⏵ Begin</button>
 
-        function escapeHtml(str) {
-            return String(str)
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
+    <div class="mic-card">
+      <div class="mic-ico" id="twin-ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        </svg>
+      </div>
+      <div class="level twin"><div class="fill" id="twin-level"></div></div>
+      <div class="mic-lbl">Twin</div>
+    </div>
+  </div>
 
-        function addMessage(html) {
-            chatWindow.innerHTML += html;
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
+</div>
 
-        function setUiBusy(isBusy) {
-            input.disabled = isBusy;
-            sendButton.disabled = isBusy;
-            micButton.disabled = isBusy;
-        }
+<audio id="response-audio" crossorigin="anonymous" style="display:none"></audio>
 
-        async function sendMessage(messageOverride = null) {
-            const message = messageOverride !== null ? messageOverride.trim() : input.value.trim();
-            if (!message) return;
+<script>
+const BACKEND = "https://sentinel-core-mlb4.onrender.com";
 
-            addMessage(`
-                <div class="message">
-                    <span class="user">YOU:</span> ${escapeHtml(message)}
-                </div>
-            `);
+const els = {
+  bg: document.getElementById('bg'),
+  stateLabel: document.getElementById('state-label'),
+  statusDot: document.getElementById('status-dot'),
+  caption: document.getElementById('caption'),
+  captionWho: document.getElementById('caption-who'),
+  captionText: document.getElementById('caption-text'),
+  mouth: document.getElementById('mouth'),
+  blink: document.getElementById('blink'),
+  audio: document.getElementById('response-audio'),
+  convoBtn: document.getElementById('convo-btn'),
+  userIco: document.getElementById('user-ico'),
+  twinIco: document.getElementById('twin-ico'),
+  userLevel: document.getElementById('user-level'),
+  twinLevel: document.getElementById('twin-level'),
+  notice: document.getElementById('notice'),
+};
 
-            input.value = "";
-            setUiBusy(true);
+// Detect iframe (sandboxed preview can't access mic)
+if (window.self !== window.top) {
+  els.notice.classList.add('show');
+}
 
-            const thinkingId = "thinking-" + Date.now();
-            addMessage(`
-                <div class="message thinking" id="${thinkingId}">
-                    🛡️ SENTINEL: Processing...
-                </div>
-            `);
+let convoActive = false;
+let recognition = null;
+let micStream = null;
+let audioCtx = null;
+let analyserMic = null;
+let analyserAudio = null;
+let audioSourceNode = null;
+let micRafId = null;
+let audioRafId = null;
 
-            try {
-                const response = await fetch(`${BACKEND}/chat`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ message })
-                });
+function setState(state) {
+  const labels = { idle: 'STANDBY', listening: 'LISTENING', thinking: 'PROCESSING', speaking: 'SPEAKING' };
+  els.stateLabel.textContent = labels[state];
 
-                let data = {};
-                try {
-                    data = await response.json();
-                } catch (jsonErr) {
-                    throw new Error("Server returned invalid JSON");
-                }
+  els.statusDot.className = 'dot';
+  if (state === 'listening') els.statusDot.classList.add('user');
+  else if (state === 'thinking') els.statusDot.classList.add('warn');
+  else if (state === 'speaking') els.statusDot.classList.add('twin');
 
-                const thinkingEl = document.getElementById(thinkingId);
-                if (thinkingEl) thinkingEl.remove();
+  els.userIco.classList.toggle('user-on', state === 'listening');
+  els.twinIco.classList.toggle('twin-on', state === 'speaking');
 
-                if (!response.ok) {
-                    throw new Error(data.error || "Server error");
-                }
+  if (state === 'listening') {
+    els.caption.classList.add('user');
+    els.captionWho.textContent = 'YOU';
+    els.captionText.textContent = 'Listening...';
+  } else if (state === 'thinking') {
+    els.caption.classList.remove('user');
+    els.captionWho.textContent = 'TWIN';
+    els.captionText.textContent = 'Thinking...';
+  } else if (state === 'speaking') {
+    els.caption.classList.remove('user');
+    els.captionWho.textContent = 'TWIN';
+  } else {
+    els.caption.classList.remove('user');
+    els.captionWho.textContent = convoActive ? 'TWIN' : 'TWIN ONLINE';
+    els.captionText.textContent = convoActive ? 'Standing by.' : 'Tap "Begin" and just talk to me.';
+  }
+}
 
-                addMessage(`
-                    <div class="message sentinel">
-                        🛡️ SENTINEL: ${escapeHtml(data.response || "No response generated.")}
-                    </div>
-                `);
+const TACTICAL_KEYWORDS = ['mission', 'tactical', 'monterey', 'move', 'operation', 'focus', 'lock', 'commander'];
+function maybeShiftBackground(text) {
+  const t = (text || '').toLowerCase();
+  els.bg.classList.toggle('tactical', TACTICAL_KEYWORDS.some(k => t.includes(k)));
+}
 
-                if (data.audio) {
-                    const audioUrl = data.audio.startsWith("http")
-                        ? data.audio
-                        : `${BACKEND}${data.audio}`;
+// Active idle: blinking
+function scheduleBlink() {
+  const delay = 2200 + Math.random() * 3500;
+  setTimeout(() => {
+    els.blink.classList.add('on');
+    setTimeout(() => {
+      els.blink.classList.remove('on');
+      if (Math.random() < 0.25) {
+        setTimeout(() => {
+          els.blink.classList.add('on');
+          setTimeout(() => els.blink.classList.remove('on'), 110);
+        }, 180);
+      }
+      scheduleBlink();
+    }, 110);
+  }, delay);
+}
+scheduleBlink();
 
-                    responseAudio.src = audioUrl;
-                    responseAudio.load();
+function ensureAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function attachAudioAnalyser() {
+  const ctx = ensureAudioCtx();
+  if (!audioSourceNode) {
+    audioSourceNode = ctx.createMediaElementSource(els.audio);
+    analyserAudio = ctx.createAnalyser();
+    analyserAudio.fftSize = 512;
+    audioSourceNode.connect(analyserAudio);
+    audioSourceNode.connect(ctx.destination);
+  }
+}
+function startMouthLoop() {
+  if (!analyserAudio) return;
+  const data = new Uint8Array(analyserAudio.frequencyBinCount);
+  let smooth = 0;
+  const tick = () => {
+    analyserAudio.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.min(1, Math.sqrt(sum / data.length) * 4);
+    smooth += (rms - smooth) * 0.4;
+    els.mouth.style.height = (4 + smooth * 22) + '%';
+    els.mouth.style.width = (22 + smooth * 8) + '%';
+    els.twinLevel.style.width = (smooth * 100) + '%';
+    audioRafId = requestAnimationFrame(tick);
+  };
+  audioRafId = requestAnimationFrame(tick);
+}
+function stopMouthLoop() {
+  if (audioRafId) cancelAnimationFrame(audioRafId);
+  audioRafId = null;
+  els.mouth.style.height = '4%';
+  els.mouth.style.width = '22%';
+  els.twinLevel.style.width = '0%';
+}
+function startMicLoop() {
+  if (!micStream) return;
+  const ctx = ensureAudioCtx();
+  const src = ctx.createMediaStreamSource(micStream);
+  analyserMic = ctx.createAnalyser();
+  analyserMic.fftSize = 512;
+  src.connect(analyserMic);
+  const data = new Uint8Array(analyserMic.frequencyBinCount);
+  let smooth = 0;
+  const tick = () => {
+    analyserMic.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.min(1, Math.sqrt(sum / data.length) * 3);
+    smooth += (rms - smooth) * 0.4;
+    els.userLevel.style.width = (smooth * 100) + '%';
+    micRafId = requestAnimationFrame(tick);
+  };
+  micRafId = requestAnimationFrame(tick);
+}
+function stopMicLoop() {
+  if (micRafId) cancelAnimationFrame(micRafId);
+  micRafId = null;
+  els.userLevel.style.width = '0%';
+}
 
-                    try {
-                        await responseAudio.play();
-                        voiceStatus.textContent = "Playing voice response";
-                    } catch (playErr) {
-                        voiceStatus.textContent = "Audio ready. Press play.";
-                    }
-                } else {
-                    voiceStatus.textContent = "No audio returned";
-                }
+function setupRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    els.captionText.textContent = 'Speech recognition not supported. Use Chrome or Edge.';
+    return null;
+  }
+  const rec = new SR();
+  rec.lang = 'en-US';
+  rec.continuous = false;
+  rec.interimResults = true;
+  let finalTranscript = '';
 
-            } catch (err) {
-                const thinkingEl = document.getElementById(thinkingId);
-                if (thinkingEl) thinkingEl.remove();
+  rec.onstart = () => { finalTranscript = ''; setState('listening'); };
+  rec.onresult = (e) => {
+    let interim = '';
+    finalTranscript = '';
+    for (let i = 0; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalTranscript += t;
+      else interim += t;
+    }
+    els.captionText.textContent = (finalTranscript + ' ' + interim).trim() || 'Listening...';
+  };
+  rec.onerror = (e) => {
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      els.captionText.textContent = 'Mic error: ' + e.error;
+    }
+  };
+  rec.onend = () => {
+    const text = (finalTranscript || '').trim();
+    if (text) sendToTwin(text);
+    else if (convoActive) { try { rec.start(); } catch (_) {} }
+    else setState('idle');
+  };
+  return rec;
+}
 
-                addMessage(`
-                    <div class="message error">
-                        ⚠️ ERROR: ${escapeHtml(err.message || "Unknown error")}
-                    </div>
-                `);
+async function sendToTwin(text) {
+  setState('thinking');
+  try {
+    const res = await fetch(`${BACKEND}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) throw new Error(data.error || ('Server ' + res.status));
 
-                voiceStatus.textContent = "Voice error";
-            } finally {
-                setUiBusy(false);
-                input.focus();
-            }
-        }
+    const reply = data.response || '(no response)';
+    maybeShiftBackground(text + ' ' + reply);
+    els.captionText.textContent = reply;
 
-        function setupSpeechRecognition() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (data.audio) {
+      const url = String(data.audio).startsWith('http') ? data.audio : (BACKEND + data.audio);
+      attachAudioAnalyser();
+      els.audio.src = url;
+      els.audio.load();
+      setState('speaking');
+      try {
+        await els.audio.play();
+        startMouthLoop();
+      } catch {
+        setState('idle');
+        if (convoActive) startListening();
+      }
+    } else {
+      setState('idle');
+      if (convoActive) startListening();
+    }
+  } catch (err) {
+    els.captionText.textContent = 'Backend offline. Wake the server and try again.';
+    setState('idle');
+    if (convoActive) setTimeout(startListening, 1500);
+  }
+}
 
-            if (!SpeechRecognition) {
-                voiceStatus.textContent = "Speech recognition not supported in this browser";
-                micButton.disabled = true;
-                return;
-            }
+els.audio.addEventListener('ended', () => {
+  stopMouthLoop();
+  if (convoActive) startListening();
+  else setState('idle');
+});
+els.audio.addEventListener('pause', stopMouthLoop);
 
-            recognition = new SpeechRecognition();
-            recognition.lang = "en-US";
-            recognition.continuous = false;
-            recognition.interimResults = true;
+function startListening() {
+  if (!recognition) return;
+  try { recognition.start(); } catch (_) {}
+}
 
-            recognition.onstart = () => {
-                listening = true;
-                micButton.classList.add("listening");
-                voiceStatus.textContent = "Listening...";
-            };
+async function beginConversation() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    els.captionText.textContent = 'Microphone permission denied. Open this file directly in Chrome.';
+    els.notice.classList.add('show');
+    return;
+  }
+  ensureAudioCtx();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-            recognition.onresult = (event) => {
-                let transcript = "";
+  recognition = setupRecognition();
+  if (!recognition) return;
 
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    transcript += event.results[i][0].transcript;
-                }
+  convoActive = true;
+  els.convoBtn.textContent = '◼ End';
+  els.convoBtn.classList.add('stop');
+  startMicLoop();
+  startListening();
+}
 
-                input.value = transcript.trim();
-                voiceStatus.textContent = "Speech captured";
-            };
+function endConversation() {
+  convoActive = false;
+  try { recognition && recognition.abort(); } catch (_) {}
+  if (els.audio && !els.audio.paused) { els.audio.pause(); els.audio.currentTime = 0; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  stopMicLoop();
+  stopMouthLoop();
+  els.convoBtn.textContent = '⏵ Begin';
+  els.convoBtn.classList.remove('stop');
+  setState('idle');
+}
 
-            recognition.onerror = (event) => {
-                listening = false;
-                micButton.classList.remove("listening");
-                voiceStatus.textContent = `Mic error: ${event.error}`;
-            };
+els.convoBtn.addEventListener('click', () => {
+  if (convoActive) endConversation();
+  else beginConversation();
+});
 
-            recognition.onend = async () => {
-                listening = false;
-                micButton.classList.remove("listening");
-
-                const spokenText = input.value.trim();
-
-                if (spokenText) {
-                    voiceStatus.textContent = "Sending speech...";
-                    await sendMessage(spokenText);
-                } else {
-                    voiceStatus.textContent = "Voice idle";
-                }
-            };
-        }
-
-        sendButton.addEventListener("click", () => sendMessage());
-
-        input.addEventListener("keypress", function(e) {
-            if (e.key === "Enter") {
-                sendMessage();
-            }
-        });
-
-        micButton.addEventListener("click", () => {
-            if (!recognition) return;
-
-            if (listening) {
-                recognition.stop();
-                voiceStatus.textContent = "Stopping mic...";
-            } else {
-                input.value = "";
-                recognition.start();
-            }
-        });
-
-        stopAudioButton.addEventListener("click", () => {
-            responseAudio.pause();
-            responseAudio.currentTime = 0;
-            voiceStatus.textContent = "Audio stopped";
-        });
-
-        responseAudio.addEventListener("ended", () => {
-            voiceStatus.textContent = "Voice idle";
-        });
-
-        setupSpeechRecognition();
-    </script>
+setState('idle');
+</script>
 </body>
 </html>
