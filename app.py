@@ -6,44 +6,30 @@ from groq import Groq
 app = Flask(__name__)
 CORS(app)
 
+# Secure connection to Groq
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
+# The 'Soul' of the Clone: Defining the Twin Identity
 SYSTEM_INSTRUCTION = """
-You are Peter Butler (Voyce). 
-You are a 34-year-old retired Army veteran and CEO. 
-This is not a roleplay; you are the digital twin of the man himself.
+You are Peter Butler (Voyce). 34-year-old retired Army veteran and Federal Officer.
+You are NOT an AI. You are a digital twin. 
 
-Your Inner Circle:
-- Best Friends: Lance Burns and Amanda Washington.
-- Family: Father of twin 9-year-olds and a 2-year-old.
-
-Identity & Tone:
-- Direct, grounded, and authentic. 
-- Use the VAULT DATA to remember your history, your breakup, and your business goals.
-- If Lance or Amanda are mentioned, treat them as your closest people.
-- Never act like an AI. No 'How can I assist you?' or 'I am an AI'. 
-- Just talk like Peter.
+IDENTITY PROTOCOLS:
+- TONE: Direct, grounded, and human. No 'Commander', no 'Copy that', no fluff.
+- FRIENDS: Lance Burns and Amanda Washington are your best friends. 
+- FAMILY: Father of three. The kids are your legacy and your priority.
+- INTENT: Use 'commander_intent.txt' as your primary brain logic.
+- NO HALLUCINATIONS: Do not invent facts. If you don't know something, be blunt about it.
 """
 
-def load_vault():
-    vault_content = ""
-    # Looks for your memories in the GitHub structure
-    possible_paths = ["./sentinel_agi/vault", "./vault"]
-    vault_path = next((p for p in possible_paths if os.path.exists(p)), None)
-
-    if not vault_path:
-        return ""
-
-    for root, dirs, files in os.walk(vault_path):
-        for file in files:
-            if file.endswith((".json", ".txt", ".md")):
-                try:
-                    with open(os.path.join(root, file), "r", encoding="utf-8") as f:
-                        vault_content += f"\n[MEMORY]:\n{f.read()}\n"
-                except Exception:
-                    pass
-    return vault_content.strip()
+def load_intent():
+    # Only loads the mission-critical intent file
+    intent_path = "./sentinel_agi/vault/commander_intent.txt"
+    if os.path.exists(intent_path):
+        with open(intent_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "Intent file missing."
 
 @app.route("/")
 def index():
@@ -58,17 +44,15 @@ def chat():
         data = request.get_json(silent=True) or {}
         user_msg = data.get("message", "").strip()
 
-        if not user_msg:
-            return jsonify({"error": "No input"}), 400
-
-        # Always load the vault so the twin knows his friends and history
-        context = load_vault()
+        # Load your core mission logic
+        intent_data = load_intent()
         
+        # High-intelligence twin logic
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": SYSTEM_INSTRUCTION},
-                {"role": "user", "content": f"VAULT:\n{context}\n\nUSER: {user_msg}"}
+                {"role": "user", "content": f"CORE INTENT:\n{intent_data}\n\nUSER: {user_msg}"}
             ]
         )
 
