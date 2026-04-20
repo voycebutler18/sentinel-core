@@ -209,6 +209,23 @@ def chat():
         central_time = datetime.now(ZoneInfo('America/Chicago'))
         current_time_str = central_time.strftime("%I:%M %p on %A, %B %d, %Y")
 
+        # BUG FIX 1 & 2: Relay intercept must run BEFORE text_prompt is built,
+        # and relay_context must be initialized before text_prompt references it.
+
+        # --- Relay intercept: "tell/remind my kids/Devonn..." ---
+        relay_target = detect_relay_target(user_msg)
+        if relay_target:
+            save_relay(relay_target, user_msg)
+            target_label = relay_target if relay_target != "kids" else "the kids"
+            return jsonify({"response": f"got it, i'll let {target_label} know when i see them."})
+
+        # Build relay_context BEFORE text_prompt (was a NameError crash before)
+        pending = get_pending_relays()
+        relay_context = ""
+        if pending:
+            relay_lines = [f'- [{r["target"]}] {r["message"]}' for r in pending]
+            relay_context = "\n\n[PENDING RELAY MESSAGES — deliver these naturally if the right person is present]\n" + "\n".join(relay_lines)
+
         # Build the text portion of the prompt
         text_prompt = f"""[COMMANDER INTENT]
 {intent_context}
@@ -224,24 +241,18 @@ Room context: {room_context}{relay_context}
 
 Reply as Peter. No labels. Keep it real."""
 
-        # --- Relay intercept: "tell/remind my kids/Devonn..." ---
-        relay_target = detect_relay_target(user_msg)
-        if relay_target:
-            save_relay(relay_target, user_msg)
-            target_label = relay_target if relay_target != "kids" else "the kids"
-            return jsonify({"response": f"got it, i'll let {target_label} know when i see them."})
-
-        # Inject any pending relays into the prompt if a kid is recognized on camera
-        pending = get_pending_relays()
-        relay_context = ""
-        if pending:
-            relay_lines = [f'- [{r["target"]}] {r["message"]}' for r in pending]
-            relay_context = "\n\n[PENDING RELAY MESSAGES — deliver these naturally if the right person is present]\n" + "\n".join(relay_lines)
-
         # --- Vision path: image included ---
         if image_data:
             # Step 1: Vision Bridge — analyze the scene first
             scene_context = analyze_scene(image_data, user_msg)
+
+            # BUG FIX 3: Mark relays delivered when the scene confirms the right person is present
+            if pending:
+                scene_lower = scene_context.lower()
+                for target in set(r["target"] for r in pending):
+                    names_to_check = ["kids", target]  # "kids" relays deliver to anyone
+                    if any(name in scene_lower for name in names_to_check):
+                        mark_relays_delivered(target)
 
             # Step 2: Build enriched prompt with scene awareness
             enriched_prompt = f"""{text_prompt}
