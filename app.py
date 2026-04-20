@@ -74,6 +74,54 @@ def clean(text):
     text = re.sub(r"(?i)^(peter|user|response|here is|sure|okay|twin|voyce)\s*[:\-]?\s*", "", text)
     return " ".join(text.split()).strip()
 
+def analyze_scene(image_base64, user_msg):
+    """
+    Vision Bridge — uses Llama 3.2 Vision to read the room before responding.
+    Returns a natural scene description grounded in Commander Intent context.
+    Strips the data URL prefix if present so the model gets clean base64.
+    """
+    # Strip data URL prefix if frontend sent full data URI
+    raw_b64 = image_base64
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+
+    intent_context = load_file(INTENT_FILE)
+
+    vision_prompt = f"""You are Peter Butler's digital twin (Voyce). 
+You are looking through a camera in his home. 
+
+COMMANDER INTENT CONTEXT:
+{intent_context}
+
+Look at this image and answer naturally:
+- Who is in the room? (use their names if you recognize them from the intent)
+- What are they doing?
+- What is the vibe / energy of the space?
+- Anything worth noticing about Peter's appearance or the environment?
+
+Keep it brief, warm, and Chicago. This is for your own awareness before you respond to Peter.
+User message: {user_msg or '(no message, just checking in)'}"""
+
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.2-11b-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": vision_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{raw_b64}"}}
+                    ]
+                }
+            ],
+            temperature=0.5,
+            max_tokens=200
+        )
+        return completion.choices[0].message.content or ""
+    except Exception as e:
+        return f"(scene read failed: {e})"
+
+
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
@@ -112,7 +160,19 @@ Reply as Peter. No labels. Keep it real."""
 
         # --- Vision path: image included ---
         if image_data:
-            # Ensure proper data URL format
+            # Step 1: Vision Bridge — analyze the scene first
+            scene_context = analyze_scene(image_data, user_msg)
+
+            # Step 2: Build enriched prompt with scene awareness
+            enriched_prompt = f"""{text_prompt}
+
+[WHAT YOU SEE IN THE ROOM RIGHT NOW]
+{scene_context}
+
+Use this visual context naturally in your response — like a friend who can actually see you.
+Don't narrate the image like a description. Just respond as Peter would if he was there."""
+
+            # Ensure proper data URL format for final completion
             if not image_data.startswith("data:"):
                 image_data = f"data:image/jpeg;base64,{image_data}"
 
@@ -123,13 +183,13 @@ Reply as Peter. No labels. Keep it real."""
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": text_prompt},
+                            {"type": "text", "text": enriched_prompt},
                             {"type": "image_url", "image_url": {"url": image_data}}
                         ]
                     }
                 ],
                 temperature=0.7,
-                max_tokens=300  # More room for visual descriptions
+                max_tokens=300  # More room for visual responses
             )
 
         # --- Text-only path ---
