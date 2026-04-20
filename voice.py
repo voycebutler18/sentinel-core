@@ -1,9 +1,9 @@
 import os
+os.environ["COQUI_TOS_AGREED"] = "1"
+
 from pathlib import Path
 from TTS.api import TTS
 import uuid
-
-# ---------------- PATHS ---------------- #
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -16,16 +16,12 @@ VOICE_DIR.mkdir(exist_ok=True)
 VOICE_CACHE_DIR = BASE_DIR / "voice_cache"
 VOICE_CACHE_DIR.mkdir(exist_ok=True)
 
-# ---------------- VOICE FILES ---------------- #
-
-# Use up to 3 clean samples
 SPEAKER_WAVS = [
     str(VOICE_DIR / "voice1.wav"),
     str(VOICE_DIR / "voice2.wav"),
     str(VOICE_DIR / "voice3.wav"),
 ]
 
-# Filter out missing files automatically
 SPEAKER_WAVS = [v for v in SPEAKER_WAVS if os.path.exists(v)]
 
 if not SPEAKER_WAVS:
@@ -33,12 +29,13 @@ if not SPEAKER_WAVS:
         "No voice files found. Put voice1.wav, voice2.wav, or voice3.wav inside /voice/"
     )
 
-# ---------------- LOAD MODEL ---------------- #
+_tts = None
 
-# XTTS v2 supports multi-speaker cloning
-tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
-
-# ---------------- GENERATE AUDIO ---------------- #
+def get_tts():
+    global _tts
+    if _tts is None:
+        _tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
+    return _tts
 
 def clone_to_file(
     text: str,
@@ -46,13 +43,11 @@ def clone_to_file(
     language: str = "en",
     speaker_id: str = "peter"
 ) -> str:
-    """
-    Generate speech and overwrite file.
-    """
     if not text or not text.strip():
         raise ValueError("Text is required")
 
     output_path = STATIC_DIR / filename
+    tts = get_tts()
 
     tts.tts_to_file(
         text=text,
@@ -65,15 +60,11 @@ def clone_to_file(
 
     return f"/static/{filename}"
 
-
 def clone_to_unique_file(
     text: str,
     language: str = "en",
     speaker_id: str = "peter"
 ) -> str:
-    """
-    Generate speech with unique filename so responses don’t overwrite each other.
-    """
     unique_name = f"{uuid.uuid4().hex}.wav"
     return clone_to_file(
         text=text,
