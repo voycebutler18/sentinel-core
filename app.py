@@ -12,7 +12,6 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 MEMORY_FILE = "memory.json"
 DATASET_FILE = "dataset.json"
-EMOTION_FILE = "emotion.json"
 
 # ---------------- SYSTEM ---------------- #
 
@@ -22,19 +21,20 @@ You are Peter Butler.
 Do NOT:
 - say you are AI or a clone
 - explain yourself
-- invent fake life situations
-- create fake memories or experiences
+- use labels like "User:" or "Response:"
+- continue conversation transcripts
+- invent fake life situations or experiences
 
 Do:
-- respond naturally
-- be direct
-- sound like real texting
-- match tone and energy
+- respond naturally like texting
+- be direct, real, grounded
+- keep responses clean and human
 
-You are just being yourself.
+IMPORTANT:
+Only return the final message. No formatting labels.
 """
 
-# ---------------- MEMORY ---------------- #
+# ---------------- FILE UTILS ---------------- #
 
 def load_file(path):
     try:
@@ -47,6 +47,8 @@ def save_file(path, data):
     with open(path, "w") as f:
         json.dump(data[-200:], f, indent=2)
 
+# ---------------- MEMORY ---------------- #
+
 def build_memory_context():
     mem = load_file(MEMORY_FILE)[-10:]
 
@@ -55,93 +57,99 @@ def build_memory_context():
 
     for item in mem:
         for _ in range(weight):
-            text += f"User: {item['user']}\nPeter Butler: {item['response']}\n\n"
+            text += f"[INPUT] {item['user']}\n[OUTPUT] {item['response']}\n\n"
         weight += 1
 
     return text.strip()
 
-# ---------------- EMOTION TRACKING ---------------- #
+# ---------------- DATASET ---------------- #
 
-def detect_emotion(msg):
-    msg = msg.lower()
+def build_dataset_context():
+    data = load_file(DATASET_FILE)[-8:]
 
-    if any(w in msg for w in ["tired", "drained", "overwhelmed"]):
-        return "LOW"
-    if any(w in msg for w in ["excited", "lit", "happy"]):
-        return "HIGH"
-    if any(w in msg for w in ["serious", "real talk"]):
-        return "SERIOUS"
+    text = ""
+    for item in data:
+        text += f"[INPUT] {item['input']}\n[OUTPUT] {item['output']}\n\n"
 
-    return "NEUTRAL"
+    return text.strip()
 
-def update_emotion_history(emotion):
-    data = load_file(EMOTION_FILE)
-    data.append({"emotion": emotion})
-    save_file(EMOTION_FILE, data)
+def update_dataset(user, response):
+    data = load_file(DATASET_FILE)
+    data.append({"input": user, "output": response})
+    save_file(DATASET_FILE, data)
 
-def emotion_pattern():
-    data = load_file(EMOTION_FILE)[-20:]
-    counts = {}
-
-    for d in data:
-        e = d["emotion"]
-        counts[e] = counts.get(e, 0) + 1
-
-    return counts
-
-# ---------------- MODE SWITCH ---------------- #
+# ---------------- MODE ---------------- #
 
 def detect_mode(msg):
     msg = msg.lower()
 
-    if any(w in msg for w in ["song", "lyrics", "hook", "verse"]):
+    if any(x in msg for x in ["song", "lyrics", "hook", "verse"]):
         return "MUSIC"
-    if any(w in msg for w in ["business", "money", "plan", "strategy"]):
+    if any(x in msg for x in ["business", "money", "strategy"]):
         return "BUSINESS"
 
     return "LIFE"
 
 def mode_instruction(mode):
     if mode == "MUSIC":
-        return """
-You are in MUSIC mode.
-Write like an R&B artist.
-Emotional, smooth, real, modern.
-"""
+        return "Write like an R&B artist. Emotional, smooth, real."
     if mode == "BUSINESS":
-        return """
-You are in BUSINESS mode.
-Be strategic, direct, and outcome-focused.
-No fluff.
-"""
-    return """
-You are in LIFE mode.
-Be natural, grounded, conversational.
-"""
+        return "Be direct, strategic, no fluff."
+    return "Be natural and conversational."
+
+# ---------------- EMOTION ---------------- #
+
+def detect_emotion(msg):
+    msg = msg.lower()
+
+    if any(x in msg for x in ["tired", "drained", "stress"]):
+        return "LOW"
+    if any(x in msg for x in ["excited", "happy", "lit"]):
+        return "HIGH"
+    if any(x in msg for x in ["serious", "real talk"]):
+        return "SERIOUS"
+
+    return "NEUTRAL"
+
+def emotion_instruction(emotion):
+    if emotion == "LOW":
+        return "Respond calm and grounded."
+    if emotion == "HIGH":
+        return "Match energy but stay controlled."
+    if emotion == "SERIOUS":
+        return "Be focused and intentional."
+    return "Keep it natural."
 
 # ---------------- CLEAN ---------------- #
 
 def clean(text):
+    text = text.strip()
+
+    # remove labels completely
+    text = re.sub(r"\bUser:.*", "", text)
+    text = re.sub(r"\bResponse:.*", "", text)
+
+    # remove idk spam
     text = re.sub(r"^(idk[, ]*)+", "", text, flags=re.IGNORECASE)
 
-    bad = ["my boss", "my coworker", "office", "at work"]
-    for b in bad:
-        if b in text.lower():
-            text = text.replace(b, "")
+    # remove fake life patterns
+    fake = ["my boss", "my coworker", "office", "at work"]
+    for f in fake:
+        if f in text.lower():
+            text = text.replace(f, "")
 
     return " ".join(text.split())
 
 # ---------------- PERSONALITY FILTER ---------------- #
 
-def is_not_you(user_msg, response):
+def is_bad_response(user_msg, response):
     prompt = f"""
-Does this sound fake, forced, or not like Peter Butler?
+Does this response sound fake, scripted, or not like a real person texting?
 
 User: {user_msg}
 Response: {response}
 
-Answer ONLY:
-YES or NO
+Answer ONLY YES or NO.
 """
 
     res = client.chat.completions.create(
@@ -156,12 +164,12 @@ YES or NO
 
 def refine(user_msg, response):
     prompt = f"""
-Fix this so it sounds like real texting:
+Fix this response:
 
-- not robotic
-- not generic
-- no fake situations
+- no labels
 - no filler like "idk"
+- no fake situations
+- sound like real texting
 
 User: {user_msg}
 Response: {response}
@@ -175,13 +183,6 @@ Response: {response}
 
     return res.choices[0].message.content.strip()
 
-# ---------------- VOICE HOOK ---------------- #
-
-def voice_clone(text):
-    # placeholder for your voice system
-    # plug in ElevenLabs or TTS here
-    return None
-
 # ---------------- ROUTE ---------------- #
 
 @app.route("/")
@@ -194,26 +195,30 @@ def chat():
         data = request.get_json()
         user_msg = data.get("message", "").strip()
 
-        emotion = detect_emotion(user_msg)
-        update_emotion_history(emotion)
+        if not user_msg:
+            return jsonify({"error": "Empty message"}), 400
 
         mode = detect_mode(user_msg)
+        emotion = detect_emotion(user_msg)
 
         memory_context = build_memory_context()
-        emotion_stats = emotion_pattern()
+        dataset_context = build_dataset_context()
 
         prompt = f"""
 {SYSTEM_BASE}
 
-{mode_instruction(mode)}
+Mode: {mode_instruction(mode)}
+Emotion: {emotion_instruction(emotion)}
 
-Emotion trend:
-{emotion_stats}
-
-Recent memory:
+Examples (learn style, DO NOT copy format):
 {memory_context}
 
-User: {user_msg}
+Learned style:
+{dataset_context}
+
+Now respond naturally to this message:
+
+{user_msg}
 """
 
         completion = client.chat.completions.create(
@@ -227,28 +232,28 @@ User: {user_msg}
         refined = refine(user_msg, response)
         final = clean(refined)
 
-        # rejection system
-        if is_not_you(user_msg, final):
-            final = refine(user_msg, final)
-            final = clean(final)
+        # personality correction
+        if is_bad_response(user_msg, final):
+            final = clean(refine(user_msg, final))
 
         # save memory
         mem = load_file(MEMORY_FILE)
         mem.append({
             "user": user_msg,
             "response": final,
-            "emotion": emotion,
-            "mode": mode
+            "mode": mode,
+            "emotion": emotion
         })
         save_file(MEMORY_FILE, mem)
 
-        voice = voice_clone(final)
+        # learn only good responses
+        if len(final.split()) > 2 and "idk" not in final.lower():
+            update_dataset(user_msg, final)
 
         return jsonify({
             "response": final,
-            "emotion": emotion,
             "mode": mode,
-            "voice": voice
+            "emotion": emotion
         })
 
     except Exception as e:
