@@ -119,7 +119,6 @@
     background: #051322;
   }
   .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  /* Eyes */
   .eyes {
     position: absolute; left: 0; right: 0;
     top: 33%; height: 12%;
@@ -237,11 +236,6 @@
     .footer { gap: 14px; padding: 14px; }
   }
 
-  /* ============================================================
-     HOLOGRAM THEME — Phase 1/2 visual upgrade (additive only)
-     ============================================================ */
-
-  /* Ambient bokeh / data-light layer behind the grid */
   .bg::before {
     content: "";
     position: absolute; inset: -10%;
@@ -262,7 +256,6 @@
     100% { transform: translate3d(2%, -1.5%, 0) scale(1.02); }
   }
 
-  /* Drifting data-stream lines */
   .grid::after {
     content: "";
     position: absolute; inset: 0;
@@ -278,7 +271,6 @@
     100% { background-position: 0 100vh; }
   }
 
-  /* Holographic projection on the avatar */
   .avatar img {
     filter:
       brightness(1.05)
@@ -297,7 +289,6 @@
     72%      { opacity: 1;    }
   }
 
-  /* Tinted projection plate beneath the photo */
   .avatar::before {
     content: "";
     position: absolute; inset: 0;
@@ -311,7 +302,6 @@
   .avatar .blink,
   .avatar .mouth { position: relative; z-index: 1; }
 
-  /* Scanlines + chromatic sweep over the avatar */
   .avatar::after {
     content: "";
     position: absolute; inset: 0;
@@ -342,7 +332,6 @@
     100% { background-position: 0 0,    0  120%; }
   }
 
-  /* Outer ring becomes an "ambient listening" pulse driver */
   .ring.pulse {
     box-shadow:
       0 0 24px rgba(95,232,255,0.35),
@@ -362,7 +351,6 @@
       inset 0 0 30px rgba(95,232,255,0.35);
   }
 
-  /* Slower, more organic idle sway (additive — augments .breathe) */
   .avatar-wrap {
     animation: idle-sway 7.5s ease-in-out infinite;
     will-change: transform;
@@ -374,7 +362,6 @@
     75%      { transform: translate(2px, -1px); }
   }
 
-  /* Mouth gets a softer organic transition */
   .mouth {
     transition: height 80ms ease-out, width 80ms ease-out, border-radius 120ms ease-out;
   }
@@ -414,7 +401,7 @@
 
     <div class="caption" id="caption">
       <span class="who" id="caption-who">TWIN ONLINE</span>
-      <span class="text" id="caption-text">Tap "Begin" and just talk to me.</span>
+      <span class="text" id="caption-text">Tap &quot;Begin&quot; and just talk to me.</span>
     </div>
   </main>
 
@@ -444,12 +431,11 @@
 </div>
 
 <script>
-// ── TABLET IDENTITY — change this for each tablet in your home ──────────────
-// Options: "living_room" | "kitchen" | "hallway"
-const currentRoom = "living_room";
-// ─────────────────────────────────────────────────────────────────────────────
-
 const BACKEND = "https://sentinel-core-mlb4.onrender.com";
+
+// FIX: define the room for each tablet
+// change this per device: "living_room", "kitchen", or "hallway"
+const currentRoom = "living_room";
 
 const els = {
   bg: document.getElementById('bg'),
@@ -472,7 +458,7 @@ const els = {
 
 let convoActive = false;
 let recognition = null;
-let isProcessing = false; // guard: prevent mic restart while thinking/speaking
+let isProcessing = false;
 let micStream = null;
 let audioCtx = null;
 let analyserMic = null;
@@ -481,10 +467,9 @@ let mouthRafId = null;
 let synth = window.speechSynthesis;
 let speaking = false;
 
-// --- Camera / Vision ---
 const video = document.createElement('video');
 const canvas = document.createElement('canvas');
-video.setAttribute('playsinline', ''); // iOS compatibility
+video.setAttribute('playsinline', '');
 let cameraStream = null;
 
 async function startCamera() {
@@ -509,13 +494,11 @@ function captureFrame() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-  return canvas.toDataURL('image/jpeg', 0.7); // base64 image
+  return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// Pick best available voice
 function getVoice() {
   const voices = synth.getVoices();
-  // Prefer a deep male US voice
   const preferred = ['Google US English', 'Alex', 'Daniel', 'en-US'];
   for (const p of preferred) {
     const v = voices.find(v => v.name.includes(p) || v.lang === p);
@@ -551,7 +534,6 @@ function setState(state) {
   }
 }
 
-// Mouth animation while speaking (simulated)
 function startMouthAnim() {
   let t = 0;
   const tick = () => {
@@ -565,6 +547,7 @@ function startMouthAnim() {
   };
   mouthRafId = requestAnimationFrame(tick);
 }
+
 function stopMouthAnim() {
   if (mouthRafId) cancelAnimationFrame(mouthRafId);
   mouthRafId = null;
@@ -573,7 +556,6 @@ function stopMouthAnim() {
   els.twinLevel.style.width = '0%';
 }
 
-// Mic level animation
 function startMicLoop() {
   if (!micStream) return;
   const ctx = audioCtx || (audioCtx = new (window.AudioContext || window.webkitAudioContext)());
@@ -594,13 +576,13 @@ function startMicLoop() {
   };
   micRafId = requestAnimationFrame(tick);
 }
+
 function stopMicLoop() {
   if (micRafId) cancelAnimationFrame(micRafId);
   micRafId = null;
   els.userLevel.style.width = '0%';
 }
 
-// Eye blink
 function blinkEyes(cb) {
   els.eyeLeft.classList.add('closed');
   els.eyeRight.classList.add('closed');
@@ -625,19 +607,15 @@ function scheduleBlink() {
 }
 scheduleBlink();
 
-// ── Cross-browser face-tracking eye system (BlazeFace via TensorFlow.js) ───
-// Works on Chrome, Edge, Safari, Firefox, iPad, Android — any device with a camera
-// BlazeFace is a lightweight ML model (~50KB) that runs on-device at 60fps
 (function eyeTracking() {
-  let cx = 0, cy = 0;          // current smoothed pupil offset (px)
-  let tx = 0, ty = 0;          // target pupil offset
-  let blazeModel = null;       // BlazeFace model instance
+  let cx = 0, cy = 0;
+  let tx = 0, ty = 0;
+  let blazeModel = null;
   let trackingActive = false;
-  let detecting = false;       // prevent concurrent detect calls
-  const DETECT_INTERVAL = 100; // ms between face detection passes
-  const MAX_OFFSET = 11;       // max px pupil travels from center
+  let detecting = false;
+  const DETECT_INTERVAL = 100;
+  const MAX_OFFSET = 11;
 
-  // ── Smooth animation tick — always running ──────────────────────────────
   function tick() {
     cx += (tx - cx) * 0.07;
     cy += (ty - cy) * 0.07;
@@ -648,20 +626,17 @@ scheduleBlink();
   }
   requestAnimationFrame(tick);
 
-  // ── Face position → pupil offset ────────────────────────────────────────
-  // BlazeFace returns predictions with .topLeft and .bottomRight
   function predToOffset(pred, vw, vh) {
     const faceCx = (pred.topLeft[0] + pred.bottomRight[0]) / 2;
     const faceCy = (pred.topLeft[1] + pred.bottomRight[1]) / 2;
-    const nx = (faceCx / vw - 0.5) * 2;   // -1..1
+    const nx = (faceCx / vw - 0.5) * 2;
     const ny = (faceCy / vh - 0.5) * 2;
     return {
-      x: -nx * MAX_OFFSET,        // invert: face goes right → eyes look right
+      x: -nx * MAX_OFFSET,
       y:  ny * MAX_OFFSET * 0.55
     };
   }
 
-  // ── Detection loop ───────────────────────────────────────────────────────
   async function detectLoop() {
     if (!trackingActive) return;
     if (detecting || !blazeModel || !cameraStream || video.readyState < 2) {
@@ -675,21 +650,19 @@ scheduleBlink();
         const { x, y } = predToOffset(preds[0], video.videoWidth, video.videoHeight);
         tx = x; ty = y;
       } else {
-        // No face — drift gently back toward center
         tx *= 0.88; ty *= 0.88;
       }
-    } catch(e) { /* ignore frame errors */ }
+    } catch (e) {}
     detecting = false;
     setTimeout(detectLoop, DETECT_INTERVAL);
   }
 
-  // ── Idle drift fallback (before model loads or if loading fails) ─────────
   let idleDriftRunning = false;
   function startIdleDrift() {
     if (idleDriftRunning) return;
     idleDriftRunning = true;
     function newTarget() {
-      if (trackingActive && blazeModel) return; // model loaded — stop drift
+      if (trackingActive && blazeModel) return;
       tx = (Math.random() - 0.5) * MAX_OFFSET * 1.8;
       ty = (Math.random() - 0.5) * MAX_OFFSET * 1.3;
       setTimeout(newTarget, 2000 + Math.random() * 2500);
@@ -697,10 +670,8 @@ scheduleBlink();
     newTarget();
   }
 
-  // ── Load BlazeFace model ─────────────────────────────────────────────────
   async function loadModel() {
     try {
-      // TF.js + BlazeFace — both from CDN, ~200KB total, runs on any browser
       if (!window.tf) {
         await new Promise((res, rej) => {
           const s = document.createElement('script');
@@ -718,43 +689,38 @@ scheduleBlink();
         });
       }
       blazeModel = await window.blazeface.load();
-      idleDriftRunning = false; // model ready — real tracking takes over
+      idleDriftRunning = false;
       if (trackingActive) detectLoop();
-    } catch(e) {
-      // If CDN blocked or model fails, fall back to idle drift permanently
+    } catch (e) {
       startIdleDrift();
     }
   }
 
-  // Start loading model immediately (background, non-blocking)
-  startIdleDrift(); // run drift while model loads
+  startIdleDrift();
   loadModel();
 
-  // ── Hook into camera start/stop ──────────────────────────────────────────
   const _startCamera = startCamera;
   startCamera = async function() {
     await _startCamera();
     trackingActive = true;
     if (blazeModel) detectLoop();
-    // if model still loading, detectLoop() will start when camera activates
   };
 
   const _stopCamera = stopCamera;
   stopCamera = function() {
     trackingActive = false;
-    tx = 0; ty = 0; // eyes return to center
+    tx = 0; ty = 0;
     _stopCamera();
   };
 })();
-// ─────────────────────────────────────────────────────────────────────────────
 
-// While speaking — pupils dilate slightly and drift faster
 const _startMouth_eyes = startMouthAnim;
 startMouthAnim = function() {
   _startMouth_eyes();
   els.pupilLeft.style.width = els.pupilLeft.style.height = '62%';
   els.pupilRight.style.width = els.pupilRight.style.height = '62%';
 };
+
 const _stopMouth_eyes = stopMouthAnim;
 stopMouthAnim = function() {
   _stopMouth_eyes();
@@ -762,7 +728,6 @@ stopMouthAnim = function() {
   els.pupilRight.style.width = els.pupilRight.style.height = '52%';
 };
 
-// Speech synthesis speak
 function speakText(text) {
   return new Promise((resolve) => {
     if (!synth) { resolve(); return; }
@@ -789,13 +754,13 @@ function setupRecognition() {
   }
   const rec = new SR();
   rec.lang = 'en-US';
-  rec.continuous = true;      // stay open — don't auto-close after one phrase
+  rec.continuous = true;
   rec.interimResults = true;
   rec.maxAlternatives = 1;
 
   let finalTranscript = '';
   let silenceTimer = null;
-  const SILENCE_MS = 1400;    // send after 1.4s of no new speech
+  const SILENCE_MS = 1400;
 
   function clearSilence() {
     if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
@@ -806,7 +771,7 @@ function setupRecognition() {
       const text = finalTranscript.trim();
       if (text && !isProcessing) {
         finalTranscript = '';
-        rec.stop(); // stop cleanly — onend will NOT restart since isProcessing=true
+        rec.stop();
         sendToTwin(text);
       }
     }, SILENCE_MS);
@@ -824,10 +789,10 @@ function setupRecognition() {
       const t = e.results[i][0].transcript;
       if (e.results[i].isFinal) {
         finalTranscript += t + ' ';
-        armSilence(); // restart silence countdown each time we get final text
+        armSilence();
       } else {
         interim += t;
-        clearSilence(); // still talking — reset the timer
+        clearSilence();
         armSilence();
       }
     }
@@ -837,17 +802,16 @@ function setupRecognition() {
 
   rec.onerror = (e) => {
     clearSilence();
-    if (e.error === 'no-speech') return; // ignore — just silence
-    if (e.error === 'aborted') return;   // we aborted intentionally
+    if (e.error === 'no-speech') return;
+    if (e.error === 'aborted') return;
     els.captionText.textContent = 'Mic error: ' + e.error;
   };
 
   rec.onend = () => {
     clearSilence();
-    // Only restart if convo still active AND we're not already processing
     if (convoActive && !isProcessing) {
       setTimeout(() => {
-        try { rec.start(); } catch(_) {}
+        try { rec.start(); } catch (_) {}
       }, 200);
     } else if (!convoActive) {
       setState('idle');
@@ -861,26 +825,42 @@ async function sendToTwin(text) {
   isProcessing = true;
   setState('thinking');
 
-  // Abort any active recognition so it doesn't fight the response
-  try { recognition && recognition.abort(); } catch(_) {}
+  try {
+    recognition && recognition.abort();
+  } catch (_) {}
 
   try {
     const imageData = captureFrame();
-    const payload = { message: text, room: currentRoom };
-    if (imageData) payload.image = imageData;
+    const payload = {
+      message: text,
+      room: currentRoom
+    };
+
+    if (imageData) {
+      payload.image = imageData;
+    }
 
     const res = await fetch(`${BACKEND}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+
     let data = {};
-    try { data = await res.json(); } catch(_) {}
-    if (!res.ok) throw new Error(data.error || ('Server ' + res.status));
+    try {
+      data = await res.json();
+    } catch (_) {}
 
-    const reply = (data.response && data.response.trim()) ? data.response.trim() : 'say that again';
+    if (!res.ok) {
+      throw new Error(data.error || (`Server ${res.status}`));
+    }
+
+    const reply =
+      data.response && data.response.trim()
+        ? data.response.trim()
+        : 'say that again';
+
     els.captionText.textContent = reply;
-
     await speakText(reply);
 
   } catch (err) {
@@ -888,8 +868,8 @@ async function sendToTwin(text) {
     setState('idle');
   } finally {
     isProcessing = false;
+
     if (convoActive) {
-      // Small pause so the mic doesn't catch the tail of the TTS audio
       setTimeout(startListening, 350);
     } else {
       setState('idle');
@@ -899,7 +879,7 @@ async function sendToTwin(text) {
 
 function startListening() {
   if (!recognition) return;
-  try { recognition.start(); } catch(_) {}
+  try { recognition.start(); } catch (_) {}
 }
 
 async function beginConversation() {
@@ -909,17 +889,15 @@ async function beginConversation() {
     els.captionText.textContent = 'Mic permission denied. Use Chrome.';
     return;
   }
-  // Unlock audio context
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
-  // Pre-load voices
   if (synth.getVoices().length === 0) {
     await new Promise(r => { synth.onvoiceschanged = r; setTimeout(r, 1000); });
   }
   recognition = setupRecognition();
   if (!recognition) return;
   convoActive = true;
-  startCamera(); // Start eyes when conversation begins
+  startCamera();
   els.convoBtn.textContent = '◼ End';
   els.convoBtn.classList.add('stop');
   startMicLoop();
@@ -930,9 +908,9 @@ function endConversation() {
   convoActive = false;
   synth.cancel();
   speaking = false;
-  try { recognition && recognition.abort(); } catch(_) {}
+  try { recognition && recognition.abort(); } catch (_) {}
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-  stopCamera(); // Stop eyes when conversation ends
+  stopCamera();
   stopMicLoop();
   stopMouthAnim();
   els.convoBtn.textContent = '⏵ Begin';
@@ -947,13 +925,9 @@ els.convoBtn.addEventListener('click', () => {
 
 setState('idle');
 
-/* ============================================================
-   HOLOGRAM ENHANCEMENTS — Phase 2/3 (additive overrides)
-   ============================================================ */
 (function holoEnhancements() {
   const pulseRing = document.querySelector('.ring.pulse');
 
-  /* --- Organic mouth (phoneme-ish bounce with shape change) --- */
   function startMouthAnimOrganic() {
     let t = 0;
     const tick = () => {
@@ -980,10 +954,6 @@ setState('idle');
     if (pulseRing) pulseRing.classList.remove('twin-hot');
   };
 
-  /* --- Variable blinking (sometimes double-blink, sometimes long pause) --- */
-  // holoEnhancements: blink already handled by scheduleBlink() above — skip duplicate
-
-  /* --- Ambient listening: pulse ring reacts to mic level --- */
   const _startMic = startMicLoop;
   startMicLoop = function() {
     _startMic();
