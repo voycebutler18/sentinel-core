@@ -467,6 +467,7 @@ const els = {
 
 let convoActive = false;
 let recognition = null;
+let isProcessing = false; // guard: prevent mic restart while thinking/speaking
 let micStream = null;
 let audioCtx = null;
 let analyserMic = null;
@@ -803,18 +804,28 @@ function setupRecognition() {
   };
   rec.onend = () => {
     const text = (finalTranscript || '').trim();
-    if (text) sendToTwin(text);
-    else if (convoActive) { try { rec.start(); } catch(_) {} }
-    else setState('idle');
+    if (text) {
+      sendToTwin(text);
+    } else if (convoActive && !isProcessing) {
+      // Only restart if we're not already waiting for a response
+      try { rec.start(); } catch(_) {}
+    } else if (!convoActive) {
+      setState('idle');
+    }
   };
   return rec;
 }
 
 async function sendToTwin(text) {
+  isProcessing = true;
   setState('thinking');
+
+  // Abort any active recognition so it doesn't fight the response
+  try { recognition && recognition.abort(); } catch(_) {}
+
   try {
-    const imageData = captureFrame(); // Snap a photo as you speak
-    const payload = { message: text };
+    const imageData = captureFrame();
+    const payload = { message: text, room: currentRoom };
     if (imageData) payload.image = imageData;
 
     const res = await fetch(`${BACKEND}/chat`, {
@@ -835,8 +846,13 @@ async function sendToTwin(text) {
     els.captionText.textContent = 'Error: ' + err.message;
     setState('idle');
   } finally {
-    if (convoActive) startListening();
-    else setState('idle');
+    isProcessing = false;
+    if (convoActive) {
+      // Small pause so the mic doesn't catch the tail of the TTS audio
+      setTimeout(startListening, 350);
+    } else {
+      setState('idle');
+    }
   }
 }
 
