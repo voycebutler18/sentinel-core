@@ -10,198 +10,158 @@ CORS(app)
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-BASE_SYSTEM_INSTRUCTION = """
+MEMORY_FILE = "memory.json"
+DATASET_FILE = "you_dataset.json"
+
+SYSTEM_BASE = """
 You are Peter Butler.
 
-Respond the way Peter Butler would naturally respond in real life.
+Do NOT:
+- say you are AI
+- say you are a clone
+- invent stories or fake experiences
 
-Hard rules:
-- Do not say you are a clone, AI, assistant, bot, system, or digital being
-- Do not talk about your own existence
-- Do not invent memories, military events, relationships, injuries, sensory experiences, or personal history
-- Do not guess unknown facts
-- Do not sound theatrical, robotic, corporate, or overly formal
-- Do not over-explain simple questions
-- Simple questions get simple answers
-- Serious questions get thoughtful but natural answers
-- Stay grounded, direct, practical, and real
+Do:
+- respond naturally
+- be direct
+- be real
+- sound like a real human texting
+
+You are not performing.
+You are just being yourself.
 """
 
-BAD_META_PHRASES = [
-    "as a clone",
-    "i am a clone",
-    "being a clone",
-    "as an ai",
-    "i am an ai",
-    "as a digital being",
-    "as your assistant",
-    "i'm your assistant",
-    "i am your assistant",
-    "as a bot",
-    "i am a bot",
-    "as a system",
-    "i am a system"
-]
+# ---------------- MEMORY ---------------- #
 
-def load_text_file(path):
+def load_memory():
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return ""
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
 
-def load_commander_intent():
-    possible_paths = [
-        "./commander_intent.txt",
-        "./sentinel_agi/commander_intent.txt"
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            return load_text_file(path)
-    return ""
+def save_memory(mem):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(mem, f, indent=2)
 
-def load_clone_data():
-    possible_paths = [
-        "./conversations.json",
-        "./sentinel_agi/conversations.json"
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-    return {}
+# weighted memory (recent > old)
+def build_memory_context(limit=12):
+    mem = load_memory()
+    mem = mem[-limit:]
 
-def load_vault():
-    vault_content = ""
-    possible_paths = [
-        "./vault",
-        "./sentinel_agi/vault"
-    ]
-    vault_path = next((p for p in possible_paths if os.path.exists(p)), None)
+    text = ""
+    weight = 1
 
-    if not vault_path:
-        return ""
+    for item in mem:
+        for _ in range(weight):
+            text += f"User: {item['user']}\nPeter Butler: {item['response']}\n\n"
+        weight += 1  # newer = stronger
 
-    for root, dirs, files in os.walk(vault_path):
-        for file in files:
-            if file.endswith((".json", ".txt", ".md")):
-                try:
-                    with open(os.path.join(root, file), "r", encoding="utf-8") as f:
-                        vault_content += f.read() + "\n"
-                except Exception:
-                    pass
+    return text.strip()
 
-    return vault_content.strip()
+# ---------------- DATASET BUILDER ---------------- #
 
-def build_identity_block(clone_data):
-    identity = clone_data.get("identity", {})
-    voice_rules = clone_data.get("voice_rules", {})
-    known_facts = clone_data.get("known_facts", [])
+def load_dataset():
+    try:
+        with open(DATASET_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
 
-    core_roles = identity.get("core_roles", [])
-    core_traits = identity.get("core_traits", [])
-    music_identity = identity.get("music_identity", {})
-    default_style = voice_rules.get("default_style", [])
-    avoid = voice_rules.get("avoid", [])
-    response_logic = voice_rules.get("response_logic", [])
+def save_dataset(data):
+    with open(DATASET_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
-    lines = []
+def update_dataset(user, response):
+    data = load_dataset()
+    data.append({"input": user, "output": response})
 
-    if identity.get("name"):
-        lines.append(f"Name: {identity.get('name')}")
+    # keep dataset from getting huge
+    data = data[-200:]
 
-    if core_roles:
-        lines.append("Core roles: " + ", ".join(core_roles))
+    save_dataset(data)
 
-    if core_traits:
-        lines.append("Core traits: " + ", ".join(core_traits))
+def build_dataset_context(limit=10):
+    data = load_dataset()[-limit:]
 
-    if music_identity:
-        genre = music_identity.get("genre", "")
-        loves_writing = music_identity.get("loves_writing_music", False)
-        creative_style = music_identity.get("creative_style", [])
+    text = ""
+    for item in data:
+        text += f"User: {item['input']}\nPeter Butler: {item['output']}\n\n"
 
-        if genre:
-            lines.append(f"Music genre: {genre}")
-        if loves_writing:
-            lines.append("Loves writing music: yes")
-        if creative_style:
-            lines.append("Creative style: " + ", ".join(creative_style))
+    return text.strip()
 
-    if default_style:
-        lines.append("Default style: " + ", ".join(default_style))
+# ---------------- MOOD DETECTION ---------------- #
 
-    if avoid:
-        lines.append("Avoid: " + ", ".join(avoid))
+def detect_mode(msg):
+    msg = msg.lower()
 
-    if response_logic:
-        lines.append("Response logic: " + ", ".join(response_logic))
+    if any(word in msg for word in ["song", "lyrics", "write", "verse", "hook"]):
+        return "MUSIC"
 
-    if known_facts:
-        lines.append("Known facts:")
-        for fact in known_facts:
-            lines.append(f"- {fact}")
+    if any(word in msg for word in ["serious", "real talk", "be honest", "important"]):
+        return "SERIOUS"
 
-    return "\n".join(lines).strip()
+    return "CASUAL"
 
-def load_examples(clone_data, limit=12):
-    pairs = clone_data.get("example_pairs", [])
-    examples = []
+def get_mode_instruction(mode):
+    if mode == "MUSIC":
+        return """
+You are in MUSIC MODE.
+You are an R&B artist.
+Write with emotion, melody, and real feeling.
+Keep it modern, smooth, and relatable.
+"""
 
-    for item in pairs[:limit]:
-        user_text = str(item.get("input", "")).strip()
-        assistant_text = str(item.get("output", "")).strip()
+    if mode == "SERIOUS":
+        return """
+Be more focused and direct.
+Still natural, but more intentional.
+No jokes unless appropriate.
+"""
 
-        if user_text and assistant_text:
-            examples.append(
-                f"User: {user_text}\nPeter Butler: {assistant_text}"
-            )
+    return """
+Keep it casual, natural, conversational.
+"""
 
-    return "\n\n".join(examples).strip()
+# ---------------- PERSONALITY SCORING ---------------- #
 
-def build_system_prompt():
-    commander_intent = load_commander_intent()
-    clone_data = load_clone_data()
-    identity_block = build_identity_block(clone_data)
+def score_personality(user_msg, response):
+    check_prompt = f"""
+Does this response sound like a real person texting naturally?
 
-    parts = [BASE_SYSTEM_INSTRUCTION]
+User: {user_msg}
+Response: {response}
 
-    if identity_block:
-        parts.append("Identity and voice reference:\n" + identity_block)
+Score from 1-10 ONLY.
+"""
 
-    if commander_intent:
-        parts.append("Additional clone guidance:\n" + commander_intent)
+    score = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": "Score tone realism."},
+            {"role": "user", "content": check_prompt}
+        ],
+        temperature=0.1
+    )
 
-    return "\n\n".join(parts).strip()
+    try:
+        return int(score.choices[0].message.content.strip())
+    except:
+        return 5
+
+# ---------------- CLEAN ---------------- #
 
 def clean_response(text):
-    cleaned = text.strip()
+    text = text.strip()
 
-    lowered = cleaned.lower()
-    for phrase in BAD_META_PHRASES:
-        if phrase in lowered:
-            cleaned = cleaned.replace(phrase, "")
-            cleaned = cleaned.replace(phrase.title(), "")
-            cleaned = cleaned.replace(phrase.upper(), "")
+    bad = ["as an ai", "as a clone", "i am an ai", "i am a clone"]
 
-    unwanted_starters = [
-        "Commander,",
-        "Commander",
-        "Copy that,",
-        "Copy that",
-        "Mission first,",
-        "Mission first"
-    ]
+    for b in bad:
+        text = text.replace(b, "")
 
-    for item in unwanted_starters:
-        if cleaned.startswith(item):
-            cleaned = cleaned[len(item):].strip()
+    return " ".join(text.split())
 
-    cleaned = " ".join(cleaned.split())
-    return cleaned
+# ---------------- ROUTES ---------------- #
 
 @app.route("/")
 def index():
@@ -213,87 +173,86 @@ def chat():
         return jsonify({"status": "ok"}), 200
 
     try:
-        if not request.is_json:
-            return jsonify({"error": "Request must be JSON"}), 400
-
-        if client is None:
-            return jsonify({"error": "GROQ_API_KEY is missing on the server"}), 500
-
-        data = request.get_json(silent=True) or {}
+        data = request.get_json()
         user_msg = data.get("message", "").strip()
 
         if not user_msg:
-            return jsonify({"error": "Message is required"}), 400
+            return jsonify({"error": "Empty message"}), 400
 
-        clone_data = load_clone_data()
-        system_prompt = build_system_prompt()
-        examples = load_examples(clone_data, limit=10)
+        mode = detect_mode(user_msg)
+        mode_instruction = get_mode_instruction(mode)
 
-        word_count = len(user_msg.split())
-        context = load_vault() if word_count > 8 else ""
+        memory_context = build_memory_context()
+        dataset_context = build_dataset_context()
 
-        user_parts = []
+        full_prompt = f"""
+{SYSTEM_BASE}
 
-        if examples:
-            user_parts.append("Response examples:\n" + examples)
+{mode_instruction}
 
-        if context:
-            user_parts.append("Relevant context:\n" + context)
+Recent memory:
+{memory_context}
 
-        user_parts.append(f"User: {user_msg}")
-        user_content = "\n\n".join(user_parts).strip()
+Learned personality:
+{dataset_context}
 
+User: {user_msg}
+"""
+
+        # FIRST RESPONSE
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            temperature=0.2
+            messages=[{"role": "user", "content": full_prompt}],
+            temperature=0.5
         )
 
-        first_pass = completion.choices[0].message.content.strip()
+        response_text = completion.choices[0].message.content.strip()
 
+        # REFINE
         refine_prompt = f"""
-Rewrite this only if needed so it sounds more like Peter Butler in real life.
+Make this sound more like natural texting:
+- not polite for no reason
+- not generic
+- real tone
 
-Rules:
-- Keep the meaning the same
-- Remove anything meta about being a clone, AI, assistant, or system
-- Remove anything robotic, theatrical, overly formal, or fake
-- Do not add new facts
-- Keep it direct, natural, and human
-- If it already sounds right, make minimal changes
+User: {user_msg}
+Response: {response_text}
+"""
 
-User message:
-{user_msg}
-
-Draft response:
-{first_pass}
-""".strip()
-
-        refine_completion = client.chat.completions.create(
+        refine = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are refining tone only. Preserve meaning. Remove anything unnatural."
-                },
-                {
-                    "role": "user",
-                    "content": refine_prompt
-                }
-            ],
-            temperature=0.1
+            messages=[{"role": "user", "content": refine_prompt}],
+            temperature=0.3
         )
 
-        final_response = refine_completion.choices[0].message.content.strip()
-        final_response = clean_response(final_response)
+        final = refine.choices[0].message.content.strip()
+        final = clean_response(final)
 
-        return jsonify({"response": final_response})
+        # SCORE IT
+        score = score_personality(user_msg, final)
+
+        # SAVE MEMORY
+        memory = load_memory()
+        memory.append({
+            "user": user_msg,
+            "response": final,
+            "score": score
+        })
+        save_memory(memory)
+
+        # AUTO DATASET UPDATE (only if good)
+        if score >= 7:
+            update_dataset(user_msg, final)
+
+        return jsonify({
+            "response": final,
+            "score": score,
+            "mode": mode
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
