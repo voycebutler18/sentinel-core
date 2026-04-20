@@ -167,6 +167,22 @@ User message: {user_msg or '(no message, just checking in)'}"""
         return ""  # Non-fatal — conversation continues without scene context
 
 
+@app.route("/scene", methods=["POST"])
+def scene():
+    """Background vision — called every 30s by tablet, never blocks chat."""
+    try:
+        data = request.get_json() or {}
+        image_data = data.get("image")
+        room = (data.get("room") or "living_room").strip()
+        if not image_data:
+            return jsonify({"scene": ""}), 200
+        scene_text = analyze_scene(image_data, None)
+        return jsonify({"scene": scene_text})
+    except Exception as e:
+        print(f"[SCENE ERROR] {e}")
+        return jsonify({"scene": ""}), 200  # always 200 — never crash the tablet
+
+
 @app.route("/ping")
 def ping():
     """Diagnostic — visit https://sentinel-core-mlb4.onrender.com/ping to confirm this version is live."""
@@ -188,10 +204,10 @@ def chat():
     try:
         data = request.get_json() or {}
         user_msg = (data.get("message") or "").strip()
-        image_data = data.get("image")
+        scene_text = (data.get("scene") or "").strip()   # pre-described by background /scene loop
         room = (data.get("room") or "living_room").strip()
 
-        if not user_msg and not image_data:
+        if not user_msg:
             return jsonify({"error": "Empty input"}), 400
 
         room_context_map = {
@@ -219,6 +235,23 @@ def chat():
             relay_lines = [f'- [{r["target"]}] {r["message"]}' for r in pending]
             relay_context = "\n\n[PENDING RELAY MESSAGES — deliver these naturally if the right person is present]\n" + "\n".join(relay_lines)
 
+        # Mark relays delivered if scene mentions the right person
+        if pending and scene_text:
+            scene_lower = scene_text.lower()
+            for target in set(r["target"] for r in pending):
+                if target in scene_lower or "kids" in scene_lower:
+                    mark_relays_delivered(target)
+
+        # Build prompt — inject scene awareness as text (no image API call needed)
+        scene_block = ""
+        if scene_text:
+            scene_block = f"""
+
+[WHAT YOU SEE RIGHT NOW]
+{scene_text}
+
+You're always watching through the camera. Use this naturally — one casual observation if relevant, then talk. Don't narrate it."""
+
         text_prompt = f"""[COMMANDER INTENT]
 {intent_context}
 
@@ -226,61 +259,23 @@ def chat():
 {memory_context}
 
 [MESSAGE]
-{user_msg or "(user sent an image)"}
+{user_msg}
 
 The current time is {current_time_str}. Use this for context.
-Room context: {room_context}{relay_context}
+Room context: {room_context}{relay_context}{scene_block}
 
 Reply as Peter. No labels. Keep it real."""
 
-        # Vision path
-        if image_data:
-            scene_context = analyze_scene(image_data, user_msg)
-
-            if pending and scene_context:
-                scene_lower = scene_context.lower()
-                for target in set(r["target"] for r in pending):
-                    if target in scene_lower or "kids" in scene_lower:
-                        mark_relays_delivered(target)
-
-            if scene_context:
-                text_prompt += f"""
-
-[WHAT YOU SEE IN THE ROOM RIGHT NOW]
-{scene_context}
-
-Use this visual context naturally — like a friend who can actually see you. Don't narrate the image. Just respond as Peter would."""
-
-            if not image_data.startswith("data:"):
-                image_data = f"data:image/jpeg;base64,{image_data}"
-
-            completion = client.chat.completions.create(
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
-                messages=[
-                    {"role": "system", "content": SYSTEM_BASE},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": text_prompt},
-                            {"type": "image_url", "image_url": {"url": image_data}}
-                        ]
-                    }
-                ],
-                temperature=0.7,
-                max_tokens=300
-            )
-
-        # Text-only path
-        else:
-            completion = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {"role": "system", "content": SYSTEM_BASE},
-                    {"role": "user", "content": text_prompt}
-                ],
-                temperature=0.7,
-                max_tokens=150
-            )
+        # Always text-only model — fast, reliable, no vision API latency
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": SYSTEM_BASE},
+                {"role": "user", "content": text_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=150
+        )
 
         raw_response = completion.choices[0].message.content or ""
         final_response = clean(raw_response)
@@ -291,7 +286,7 @@ Use this visual context naturally — like a friend who can actually see you. Do
         mem = load_file(MEMORY_FILE)
         if not isinstance(mem, list):
             mem = []
-        mem.append({"user": user_msg or "[image]", "response": final_response})
+        mem.append({"user": user_msg, "response": final_response})
         save_file(MEMORY_FILE, mem)
 
         return jsonify({"response": final_response})
