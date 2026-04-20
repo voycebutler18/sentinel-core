@@ -892,13 +892,31 @@ async function sendToTwin(text) {
   } catch (_) {}
 
   try {
-    // Send the cached scene description as text — no image attached to chat calls.
-    // This keeps every response fast (text-only model) while still being visually aware.
+    // ── Instant Vision ────────────────────────────────────────────────────────
+    // Snap a live frame RIGHT NOW (the moment the user stopped talking) so the
+    // twin sees exactly who is speaking, not a frame from up to 30s ago.
+    // Falls back to the cached scene text if the camera isn't ready.
+    const liveFrame = captureFrame();   // base64 JPEG or null
+
     const payload = {
       message: text,
       room: currentRoom,
-      scene: cachedScene || ""   // latest background vision snapshot
+      scene: cachedScene || "",         // background cache — still useful context
+      image: liveFrame || null,         // 🔴 live frame: who is actually here RIGHT NOW
     };
+
+    // If we got a live frame, also silently refresh the cache in the background
+    // so the next cached read is as fresh as possible.
+    if (liveFrame) {
+      fetch(`${BACKEND}/scene`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: liveFrame, room: currentRoom }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d && d.scene) cachedScene = d.scene; })
+        .catch(() => {});   // silent — never blocks the conversation
+    }
 
     const res = await fetch(`${BACKEND}/chat`, {
       method: 'POST',
