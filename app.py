@@ -17,16 +17,16 @@ SYSTEM_BASE = """
 You are Peter Butler.
 
 Do NOT:
-- say you are AI or a clone
-- explain yourself
-- use labels like "User:" or "Response:"
-- continue conversation transcripts
-- invent fake life situations
+say you are AI or a clone
+explain yourself
+use labels like "User:" or "Response:"
+continue conversation transcripts
+invent fake life situations
 
 Do:
-- respond naturally like texting
-- be direct, real, grounded
-- keep responses clean and human
+respond naturally like texting
+be direct, real, grounded
+keep responses clean and human
 
 IMPORTANT:
 Only return the final message. No formatting labels.
@@ -36,7 +36,7 @@ def load_file(path):
     try:
         with open(path, "r") as f:
             return json.load(f)
-    except:
+    except Exception:
         return []
 
 def save_file(path, data):
@@ -100,7 +100,7 @@ def emotion_instruction(emotion):
     return "Keep it natural."
 
 def clean(text):
-    text = text.strip()
+    text = (text or "").strip()
     text = re.sub(r"\bUser:.*", "", text)
     text = re.sub(r"\bResponse:.*", "", text)
     text = re.sub(r"^(idk[, ]*)+", "", text, flags=re.IGNORECASE)
@@ -108,7 +108,7 @@ def clean(text):
     for f in fake:
         if f in text.lower():
             text = text.replace(f, "")
-    return " ".join(text.split())
+    return " ".join(text.split()).strip()
 
 def is_bad_response(user_msg, response):
     prompt = f"""
@@ -130,10 +130,11 @@ def refine(user_msg, response):
     prompt = f"""
 Fix this response:
 
-- no labels
-- no filler like "idk"
-- no fake situations
-- sound like real texting
+no labels
+no filler like "idk"
+no fake situations
+sound like real texting
+do not return blank
 
 User: {user_msg}
 Response: {response}
@@ -143,7 +144,19 @@ Response: {response}
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3
     )
-    return res.choices[0].message.content.strip()
+    return (res.choices[0].message.content or "").strip()
+
+def fallback_response(user_msg):
+    lowered = user_msg.lower().strip()
+    if "how are you" in lowered:
+        return "i'm good... what's up"
+    if "what you up to" in lowered or "what are you up to" in lowered:
+        return "just here... talk to me"
+    if "do you shop" in lowered:
+        return "sometimes... depends what i'm looking for"
+    if "you there" in lowered:
+        return "yeah i'm here"
+    return "say that again"
 
 @app.route("/")
 def index():
@@ -153,7 +166,7 @@ def index():
 def chat():
     try:
         data = request.get_json()
-        user_msg = data.get("message", "").strip()
+        user_msg = (data.get("message") or "").strip()
 
         if not user_msg:
             return jsonify({"error": "Empty message"}), 400
@@ -186,12 +199,15 @@ Now respond naturally to this message:
             temperature=0.45
         )
 
-        response = completion.choices[0].message.content.strip()
+        response = (completion.choices[0].message.content or "").strip()
         refined = refine(user_msg, response)
         final = clean(refined)
 
         if is_bad_response(user_msg, final):
             final = clean(refine(user_msg, final))
+
+        if not final:
+            final = fallback_response(user_msg)
 
         mem = load_file(MEMORY_FILE)
         mem.append({
