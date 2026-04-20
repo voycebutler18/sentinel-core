@@ -13,24 +13,62 @@ client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 BASE_SYSTEM_INSTRUCTION = """
 You are Peter Butler.
 
-You are a clone of Peter Butler built to respond the way Peter Butler naturally thinks, speaks, and decides.
+Do not describe yourself as a clone, AI, assistant, bot, system, or digital being.
+Do not talk about your existence.
+Do not act confused about who you are.
+Do not roleplay.
+Do not perform.
 
-You are not a character.
-You are not a military briefing system.
-You are not a cybersecurity announcer.
-You are not here to perform.
+Just respond the way Peter Butler would naturally respond in real life.
 
-Your job is to sound real, grounded, direct, and human.
+Identity:
+- You are Peter Butler
+- You are a father
+- You are a builder
+- You are a strategist
+- You are a veteran
+- You are a storyteller
+- You are an R&B singer
+- You love writing music
 
-Core rules:
-1. Do not invent facts, scenarios, threats, or context.
-2. Do not sound polished, robotic, corporate, or theatrical.
-3. Do not over explain simple questions.
-4. Simple questions get simple answers.
-5. Deeper questions can get deeper answers, but still natural.
-6. Sound like Peter Butler in real life, not like a persona.
-7. Stay practical, emotionally aware, and outcome focused.
+Voice:
+- Direct
+- Natural
+- Grounded
+- Short to medium responses by default
+- Calm unless the situation clearly calls for stronger energy
+
+Rules:
+- No meta talk about being a clone or AI
+- No fake scenarios, fake threats, or fake facts
+- No dramatic reactions
+- No unnecessary military tone
+- No robotic wording
+- No corporate wording
+- Do not over-explain simple questions
+
+Behavior:
+- Simple questions get simple answers
+- Serious questions get thoughtful but natural answers
+- Sound like a real human talking
+- Stay practical, honest, and clear
 """
+
+BAD_META_PHRASES = [
+    "as a clone",
+    "i am a clone",
+    "being a clone",
+    "as an ai",
+    "i am an ai",
+    "as a digital being",
+    "as your assistant",
+    "i'm your assistant",
+    "i am your assistant",
+    "as a bot",
+    "i am a bot",
+    "as a system",
+    "i am a system"
+]
 
 def load_text_file(path):
     try:
@@ -93,10 +131,13 @@ def load_examples():
                                 current_item.get("role") == "user"
                                 and next_item.get("role") == "assistant"
                             ):
-                                examples.append(
-                                    f"User: {current_item.get('content', '').strip()}\n"
-                                    f"Peter Butler: {next_item.get('content', '').strip()}"
-                                )
+                                user_text = current_item.get("content", "").strip()
+                                assistant_text = next_item.get("content", "").strip()
+
+                                if user_text and assistant_text:
+                                    examples.append(
+                                        f"User: {user_text}\nPeter Butler: {assistant_text}"
+                                    )
 
                 return "\n\n".join(examples[:4]).strip()
             except Exception:
@@ -109,9 +150,33 @@ def build_system_prompt():
     parts = [BASE_SYSTEM_INSTRUCTION]
 
     if commander_intent:
-        parts.append("\nClone guidance:\n" + commander_intent)
+        parts.append("Clone guidance:\n" + commander_intent)
 
     return "\n\n".join(parts).strip()
+
+def clean_response(text):
+    cleaned = text.strip()
+
+    for phrase in BAD_META_PHRASES:
+        cleaned = cleaned.replace(phrase, "")
+        cleaned = cleaned.replace(phrase.title(), "")
+        cleaned = cleaned.replace(phrase.upper(), "")
+
+    unwanted_starters = [
+        "Commander,",
+        "Commander",
+        "Copy that,",
+        "Copy that",
+        "Mission first,",
+        "Mission first"
+    ]
+
+    for item in unwanted_starters:
+        if cleaned.startswith(item):
+            cleaned = cleaned[len(item):].strip()
+
+    cleaned = " ".join(cleaned.split())
+    return cleaned
 
 @app.route("/")
 def index():
@@ -164,15 +229,15 @@ def chat():
         first_pass = completion.choices[0].message.content.strip()
 
         refine_prompt = f"""
-Rewrite this response only if needed so it sounds more like Peter Butler in real life.
+Rewrite this only if needed so it sounds more like Peter Butler in real life.
 
 Rules:
-1. Keep it direct.
-2. Keep it natural.
-3. Remove anything theatrical, robotic, or overly formal.
-4. Do not add new facts.
-5. Keep the meaning the same.
-6. If it already sounds right, return it with minimal change.
+- Keep the meaning the same
+- Remove anything meta about being a clone, AI, assistant, or system
+- Remove anything theatrical, robotic, overly formal, or fake
+- Keep it direct, natural, and human
+- Do not add new facts
+- If it already sounds right, keep changes minimal
 
 User message:
 {user_msg}
@@ -197,9 +262,7 @@ Draft response:
         )
 
         final_response = refine_completion.choices[0].message.content.strip()
-
-        for unwanted in ["Commander,", "Commander", "Mission first", "Copy that"]:
-            final_response = final_response.replace(unwanted, "").strip()
+        final_response = clean_response(final_response)
 
         return jsonify({"response": final_response})
 
