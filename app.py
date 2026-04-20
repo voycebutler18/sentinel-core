@@ -2,7 +2,7 @@ import os
 import json
 import re
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from groq import Groq
@@ -77,7 +77,7 @@ def chat():
         memory_context = build_memory_context()
 
         # Get current Central Time
-        central_time = datetime.now(pytz.timezone('America/Chicago'))
+        central_time = datetime.now(ZoneInfo('America/Chicago'))
         current_time_str = central_time.strftime("%I:%M %p on %A, %B %d, %Y")
 
         # Constructing the superhuman prompt
