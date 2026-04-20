@@ -11,7 +11,8 @@ CORS(app)
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 MEMORY_FILE = "memory.json"
-DATASET_FILE = "you_dataset.json"
+DATASET_FILE = "dataset.json"
+EMOTION_FILE = "emotion.json"
 
 # ---------------- SYSTEM ---------------- #
 
@@ -21,34 +22,33 @@ You are Peter Butler.
 Do NOT:
 - say you are AI or a clone
 - explain yourself
-- invent life situations, jobs, or fake experiences
+- invent fake life situations
+- create fake memories or experiences
 
 Do:
 - respond naturally
 - be direct
-- be grounded
 - sound like real texting
 - match tone and energy
 
-You are not performing.
 You are just being yourself.
 """
 
 # ---------------- MEMORY ---------------- #
 
-def load_memory():
+def load_file(path):
     try:
-        with open(MEMORY_FILE, "r") as f:
+        with open(path, "r") as f:
             return json.load(f)
     except:
         return []
 
-def save_memory(mem):
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(mem[-200:], f, indent=2)
+def save_file(path, data):
+    with open(path, "w") as f:
+        json.dump(data[-200:], f, indent=2)
 
-def build_memory_context(limit=10):
-    mem = load_memory()[-limit:]
+def build_memory_context():
+    mem = load_file(MEMORY_FILE)[-10:]
 
     text = ""
     weight = 1
@@ -60,116 +60,108 @@ def build_memory_context(limit=10):
 
     return text.strip()
 
-# ---------------- DATASET ---------------- #
-
-def load_dataset():
-    try:
-        with open(DATASET_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return []
-
-def save_dataset(data):
-    with open(DATASET_FILE, "w") as f:
-        json.dump(data[-200:], f, indent=2)
-
-def update_dataset(user, response):
-    data = load_dataset()
-    data.append({"input": user, "output": response})
-    save_dataset(data)
-
-def build_dataset_context(limit=8):
-    data = load_dataset()[-limit:]
-
-    text = ""
-    for item in data:
-        text += f"User: {item['input']}\nPeter Butler: {item['output']}\n\n"
-
-    return text.strip()
-
-# ---------------- EMOTION DETECTION ---------------- #
+# ---------------- EMOTION TRACKING ---------------- #
 
 def detect_emotion(msg):
     msg = msg.lower()
 
-    if any(w in msg for w in ["tired", "drained", "stress", "overwhelmed"]):
+    if any(w in msg for w in ["tired", "drained", "overwhelmed"]):
         return "LOW"
-    if any(w in msg for w in ["excited", "happy", "lit", "good mood"]):
+    if any(w in msg for w in ["excited", "lit", "happy"]):
         return "HIGH"
-    if any(w in msg for w in ["serious", "real talk", "important"]):
+    if any(w in msg for w in ["serious", "real talk"]):
         return "SERIOUS"
 
     return "NEUTRAL"
 
-def emotion_instruction(emotion):
-    if emotion == "LOW":
-        return "Respond calmer, more grounded, supportive but not soft."
-    if emotion == "HIGH":
-        return "Match energy but keep control. Don’t be overhyped."
-    if emotion == "SERIOUS":
-        return "Be focused, intentional, direct."
-    return "Keep tone natural."
+def update_emotion_history(emotion):
+    data = load_file(EMOTION_FILE)
+    data.append({"emotion": emotion})
+    save_file(EMOTION_FILE, data)
 
-# ---------------- TONE MATCH ---------------- #
+def emotion_pattern():
+    data = load_file(EMOTION_FILE)[-20:]
+    counts = {}
 
-def build_tone_reference():
-    mem = load_memory()[-5:]
-    tone = ""
+    for d in data:
+        e = d["emotion"]
+        counts[e] = counts.get(e, 0) + 1
 
-    for m in mem:
-        tone += m["user"] + "\n"
+    return counts
 
-    return tone.strip()
+# ---------------- MODE SWITCH ---------------- #
+
+def detect_mode(msg):
+    msg = msg.lower()
+
+    if any(w in msg for w in ["song", "lyrics", "hook", "verse"]):
+        return "MUSIC"
+    if any(w in msg for w in ["business", "money", "plan", "strategy"]):
+        return "BUSINESS"
+
+    return "LIFE"
+
+def mode_instruction(mode):
+    if mode == "MUSIC":
+        return """
+You are in MUSIC mode.
+Write like an R&B artist.
+Emotional, smooth, real, modern.
+"""
+    if mode == "BUSINESS":
+        return """
+You are in BUSINESS mode.
+Be strategic, direct, and outcome-focused.
+No fluff.
+"""
+    return """
+You are in LIFE mode.
+Be natural, grounded, conversational.
+"""
 
 # ---------------- CLEAN ---------------- #
 
-def clean_response(text):
-    text = text.strip()
-
-    # remove idk spam
+def clean(text):
     text = re.sub(r"^(idk[, ]*)+", "", text, flags=re.IGNORECASE)
 
-    # remove fake life patterns
-    fake = ["my boss", "my coworker", "at work", "my job"]
-    for f in fake:
-        if f in text.lower():
-            text = text.replace(f, "")
+    bad = ["my boss", "my coworker", "office", "at work"]
+    for b in bad:
+        if b in text.lower():
+            text = text.replace(b, "")
 
     return " ".join(text.split())
 
 # ---------------- PERSONALITY FILTER ---------------- #
 
-def personality_filter(user_msg, response):
-    check = f"""
-Does this sound like natural human texting?
+def is_not_you(user_msg, response):
+    prompt = f"""
+Does this sound fake, forced, or not like Peter Butler?
 
 User: {user_msg}
 Response: {response}
 
 Answer ONLY:
-YES
-or
-NO
+YES or NO
 """
 
-    result = client.chat.completions.create(
+    res = client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": check}],
+        messages=[{"role": "user", "content": prompt}],
         temperature=0.1
     )
 
-    return "YES" in result.choices[0].message.content.upper()
+    return "YES" in res.choices[0].message.content.upper()
 
 # ---------------- REFINE ---------------- #
 
-def refine_response(user_msg, response):
+def refine(user_msg, response):
     prompt = f"""
-Fix this to sound more like natural texting:
+Fix this so it sounds like real texting:
 
-- remove filler like "idk"
+- not robotic
+- not generic
 - no fake situations
-- not overly polite
-- real tone
+- no filler like "idk"
 
 User: {user_msg}
 Response: {response}
@@ -183,7 +175,14 @@ Response: {response}
 
     return res.choices[0].message.content.strip()
 
-# ---------------- ROUTES ---------------- #
+# ---------------- VOICE HOOK ---------------- #
+
+def voice_clone(text):
+    # placeholder for your voice system
+    # plug in ElevenLabs or TTS here
+    return None
+
+# ---------------- ROUTE ---------------- #
 
 @app.route("/")
 def index():
@@ -196,23 +195,23 @@ def chat():
         user_msg = data.get("message", "").strip()
 
         emotion = detect_emotion(user_msg)
+        update_emotion_history(emotion)
+
+        mode = detect_mode(user_msg)
+
         memory_context = build_memory_context()
-        dataset_context = build_dataset_context()
-        tone_ref = build_tone_reference()
+        emotion_stats = emotion_pattern()
 
         prompt = f"""
 {SYSTEM_BASE}
 
-{emotion_instruction(emotion)}
+{mode_instruction(mode)}
 
-User tone examples:
-{tone_ref}
+Emotion trend:
+{emotion_stats}
 
-Recent style:
+Recent memory:
 {memory_context}
-
-Learned style:
-{dataset_context}
 
 User: {user_msg}
 """
@@ -225,33 +224,31 @@ User: {user_msg}
 
         response = completion.choices[0].message.content.strip()
 
-        # refine
-        refined = refine_response(user_msg, response)
-        final = clean_response(refined)
+        refined = refine(user_msg, response)
+        final = clean(refined)
 
-        # personality check
-        is_valid = personality_filter(user_msg, final)
-
-        if not is_valid:
-            final = refine_response(user_msg, final)
-            final = clean_response(final)
+        # rejection system
+        if is_not_you(user_msg, final):
+            final = refine(user_msg, final)
+            final = clean(final)
 
         # save memory
-        memory = load_memory()
-        memory.append({
+        mem = load_file(MEMORY_FILE)
+        mem.append({
             "user": user_msg,
             "response": final,
-            "emotion": emotion
+            "emotion": emotion,
+            "mode": mode
         })
-        save_memory(memory)
+        save_file(MEMORY_FILE, mem)
 
-        # learn only good responses
-        if len(final.split()) > 2 and "idk" not in final.lower():
-            update_dataset(user_msg, final)
+        voice = voice_clone(final)
 
         return jsonify({
             "response": final,
-            "emotion": emotion
+            "emotion": emotion,
+            "mode": mode,
+            "voice": voice
         })
 
     except Exception as e:
