@@ -26,10 +26,10 @@ if not SPEAKER_WAVS:
         "No voice files found. Put voice1.wav, voice2.wav, or voice3.wav inside /voice/"
     )
 
-# Load model at startup so gunicorn doesn't timeout on first request
-print("Loading TTS model...")
+# Load at startup so gunicorn worker doesn't timeout on first request
+print(">>> Loading XTTS v2 model...")
 _tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
-print("TTS model ready.")
+print(">>> XTTS v2 ready.")
 
 def clone_to_file(
     text: str,
