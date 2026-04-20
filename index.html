@@ -467,6 +467,15 @@ let mouthRafId = null;
 let synth = window.speechSynthesis;
 let speaking = false;
 
+// ── Continuous Vision ─────────────────────────────────────────────────────────
+// The camera runs always for face-tracking. Every 30s we silently snap a frame,
+// send it to the backend /scene endpoint, and cache the description. Every chat
+// response includes that cached scene so Voyce always "knows" what he's seeing
+// without blocking or slowing down any conversation.
+let cachedScene = "";             // latest scene description from background scan
+let visionLoopId = null;          // setInterval handle
+const VISION_INTERVAL_MS = 30000; // how often to refresh the scene (30 seconds)
+
 const video = document.createElement('video');
 const canvas = document.createElement('canvas');
 video.setAttribute('playsinline', '');
@@ -477,15 +486,41 @@ async function startCamera() {
     cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
     video.srcObject = cameraStream;
     await video.play();
+    // Kick off background vision loop immediately then repeat
+    runBackgroundVision();
+    visionLoopId = setInterval(runBackgroundVision, VISION_INTERVAL_MS);
   } catch (err) {
     console.warn('Camera not available:', err.message);
   }
 }
 
 function stopCamera() {
+  if (visionLoopId) { clearInterval(visionLoopId); visionLoopId = null; }
+  cachedScene = "";
   if (cameraStream) {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
+  }
+}
+
+// Silently grabs a frame, asks backend to describe the scene, caches the result.
+// Runs in the background — never blocks conversation.
+async function runBackgroundVision() {
+  if (!cameraStream || video.readyState < 2) return;
+  const frame = captureFrame();
+  if (!frame) return;
+  try {
+    const res = await fetch(`${BACKEND}/scene`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: frame, room: currentRoom }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.scene) cachedScene = data.scene;
+    }
+  } catch (_) {
+    // Vision failure is silent — conversation keeps going without scene context
   }
 }
 
@@ -830,15 +865,13 @@ async function sendToTwin(text) {
   } catch (_) {}
 
   try {
-    const imageData = captureFrame();
+    // Send the cached scene description as text — no image attached to chat calls.
+    // This keeps every response fast (text-only model) while still being visually aware.
     const payload = {
       message: text,
-      room: currentRoom
+      room: currentRoom,
+      scene: cachedScene || ""   // latest background vision snapshot
     };
-
-    if (imageData) {
-      payload.image = imageData;
-    }
 
     const res = await fetch(`${BACKEND}/chat`, {
       method: 'POST',
