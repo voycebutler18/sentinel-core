@@ -640,7 +640,7 @@ No robotic phrases. No sign-offs. No labels. Talk like his brother."""
 
         # ── LLM call ────────────────────────────────────────────────────────
         completion = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": SYSTEM_BASE},
                 {"role": "user",   "content": text_prompt}
