@@ -433,8 +433,6 @@
 <script>
 const BACKEND = "https://sentinel-core-mlb4.onrender.com";
 
-// FIX: define the room for each tablet
-// change this per device: "living_room", "kitchen", or "hallway"
 const currentRoom = "living_room";
 
 const els = {
@@ -468,13 +466,9 @@ let synth = window.speechSynthesis;
 let speaking = false;
 
 // ── Continuous Vision ─────────────────────────────────────────────────────────
-// The camera runs always for face-tracking. Every 30s we silently snap a frame,
-// send it to the backend /scene endpoint, and cache the description. Every chat
-// response includes that cached scene so Voyce always "knows" what he's seeing
-// without blocking or slowing down any conversation.
-let cachedScene = "";             // latest scene description from background scan
-let visionLoopId = null;          // setInterval handle
-const VISION_INTERVAL_MS = 30000; // how often to refresh the scene (30 seconds)
+let cachedScene = "";
+let visionLoopId = null;
+const VISION_INTERVAL_MS = 30000;
 
 const video = document.createElement('video');
 const canvas = document.createElement('canvas');
@@ -486,7 +480,6 @@ async function startCamera() {
     cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
     video.srcObject = cameraStream;
     await video.play();
-    // Kick off background vision loop immediately then repeat
     runBackgroundVision();
     visionLoopId = setInterval(runBackgroundVision, VISION_INTERVAL_MS);
   } catch (err) {
@@ -503,8 +496,6 @@ function stopCamera() {
   }
 }
 
-// Silently grabs a frame, asks backend to describe the scene, caches the result.
-// Runs in the background — never blocks conversation.
 async function runBackgroundVision() {
   if (!cameraStream || video.readyState < 2) return;
   const frame = captureFrame();
@@ -519,9 +510,7 @@ async function runBackgroundVision() {
       const data = await res.json();
       if (data.scene) cachedScene = data.scene;
     }
-  } catch (_) {
-    // Vision failure is silent — conversation keeps going without scene context
-  }
+  } catch (_) {}
 }
 
 function captureFrame() {
@@ -534,29 +523,23 @@ function captureFrame() {
 
 function getVoice() {
   const voices = synth.getVoices();
-
-  // Priority list of known deep/male English voices across Chrome, Edge, Android, iPad
-  // Ordered best to acceptable — first match wins
   const malePriority = [
-    'Google UK English Male',   // Chrome desktop — deep, natural
-    'Microsoft Guy Online',     // Edge — very natural male
-    'Microsoft David',          // Edge/Windows fallback
-    'Daniel',                   // macOS/iPad — British male, smooth
-    'Alex',                     // macOS — male US, decent quality
-    'Google US English Male',   // Android Chrome — good male voice
-    'en-US-Neural2-D',          // some Android builds
-    'en-GB-Standard-B',         // Chrome on some devices
-    'Fred',                     // macOS legacy male
-    'Ralph',                    // macOS legacy male
-    'Albert',                   // macOS legacy male
+    'Google UK English Male',
+    'Microsoft Guy Online',
+    'Microsoft David',
+    'Daniel',
+    'Alex',
+    'Google US English Male',
+    'en-US-Neural2-D',
+    'en-GB-Standard-B',
+    'Fred',
+    'Ralph',
+    'Albert',
   ];
-
   for (const name of malePriority) {
     const v = voices.find(v => v.name.includes(name));
     if (v) return v;
   }
-
-  // Last resort: pick any English male-sounding voice by filtering out known female names
   const femaleNames = ['Samantha', 'Victoria', 'Susan', 'Karen', 'Moira',
                        'Tessa', 'Fiona', 'Ava', 'Zoe', 'Nicky', 'Serena',
                        'Google UK English Female', 'Google US English Female',
@@ -693,10 +676,7 @@ scheduleBlink();
     const faceCy = (pred.topLeft[1] + pred.bottomRight[1]) / 2;
     const nx = (faceCx / vw - 0.5) * 2;
     const ny = (faceCy / vh - 0.5) * 2;
-    return {
-      x: -nx * MAX_OFFSET,
-      y:  ny * MAX_OFFSET * 0.55
-    };
+    return { x: -nx * MAX_OFFSET, y: ny * MAX_OFFSET * 0.55 };
   }
 
   async function detectLoop() {
@@ -790,20 +770,85 @@ stopMouthAnim = function() {
   els.pupilRight.style.width = els.pupilRight.style.height = '52%';
 };
 
+// ── FIX 1: Interruption — stop VOYÉR the moment Peter speaks ──────────────────
+// Tracks real voice energy so background noise doesn't trigger a cut.
+// If RMS crosses threshold while VOYÉR is speaking → cut TTS immediately.
+let interruptAnalyser = null;
+let interruptRafId = null;
+const INTERRUPT_THRESHOLD = 0.12; // how loud Peter has to be to cut VOYÉR off
+
+function startInterruptWatch() {
+  if (!micStream) return;
+  const ctx = audioCtx || (audioCtx = new (window.AudioContext || window.webkitAudioContext)());
+  const src = ctx.createMediaStreamSource(micStream);
+  interruptAnalyser = ctx.createAnalyser();
+  interruptAnalyser.fftSize = 256;
+  src.connect(interruptAnalyser);
+  const data = new Uint8Array(interruptAnalyser.frequencyBinCount);
+
+  // Debounce: require 3 consecutive loud frames before cutting
+  let loudFrames = 0;
+  const FRAMES_NEEDED = 3;
+
+  const tick = () => {
+    if (!convoActive) { interruptRafId = null; return; }
+    interruptAnalyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / data.length);
+
+    if (speaking && rms > INTERRUPT_THRESHOLD) {
+      loudFrames++;
+      if (loudFrames >= FRAMES_NEEDED) {
+        // Peter is talking — cut VOYÉR immediately
+        synth.cancel();
+        speaking = false;
+        stopMouthAnim();
+        loudFrames = 0;
+        // Don't call setState here — recognition onstart will handle it
+      }
+    } else {
+      loudFrames = 0;
+    }
+
+    interruptRafId = requestAnimationFrame(tick);
+  };
+  interruptRafId = requestAnimationFrame(tick);
+}
+
+function stopInterruptWatch() {
+  if (interruptRafId) { cancelAnimationFrame(interruptRafId); interruptRafId = null; }
+  interruptAnalyser = null;
+}
+
+// ── FIX 2: Faster TTS ─────────────────────────────────────────────────────────
+// rate 0.90 was slower than natural speech. 1.10 feels natural and sharp.
+// pitch stays low for the deep masculine voice.
 function speakText(text) {
   return new Promise((resolve) => {
     if (!synth) { resolve(); return; }
     synth.cancel();
     const utt = new SpeechSynthesisUtterance(text);
     utt.voice = getVoice();
-    utt.rate = 0.90;   // slightly slower = more deliberate, less rushed
-    utt.pitch = 0.75;  // lower pitch = deeper/more masculine
+    utt.rate  = 1.10;   // ← was 0.90 — now natural/sharp pace
+    utt.pitch = 0.75;   // keep the deep tone
     utt.volume = 1;
     speaking = true;
     setState('speaking');
     startMouthAnim();
-    utt.onend = () => { speaking = false; stopMouthAnim(); resolve(); };
-    utt.onerror = () => { speaking = false; stopMouthAnim(); resolve(); };
+    utt.onend = () => {
+      speaking = false;
+      stopMouthAnim();
+      resolve();
+    };
+    utt.onerror = () => {
+      speaking = false;
+      stopMouthAnim();
+      resolve();
+    };
     synth.speak(utt);
   });
 }
@@ -846,6 +891,15 @@ function setupRecognition() {
   };
 
   rec.onresult = (e) => {
+    // ── Interrupt on first word while VOYÉR is speaking ───────────────────────
+    // The audio-based interrupt watch catches it first, but this is a belt-and-suspenders
+    // fallback: if speech recognition picks up any word while speaking, also cut.
+    if (speaking) {
+      synth.cancel();
+      speaking = false;
+      stopMouthAnim();
+    }
+
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const t = e.results[i][0].transcript;
@@ -892,21 +946,15 @@ async function sendToTwin(text) {
   } catch (_) {}
 
   try {
-    // ── Instant Vision ────────────────────────────────────────────────────────
-    // Snap a live frame RIGHT NOW (the moment the user stopped talking) so the
-    // twin sees exactly who is speaking, not a frame from up to 30s ago.
-    // Falls back to the cached scene text if the camera isn't ready.
-    const liveFrame = captureFrame();   // base64 JPEG or null
+    const liveFrame = captureFrame();
 
     const payload = {
       message: text,
       room: currentRoom,
-      scene: cachedScene || "",         // background cache — still useful context
-      image: liveFrame || null,         // 🔴 live frame: who is actually here RIGHT NOW
+      scene: cachedScene || "",
+      image: liveFrame || null,
     };
 
-    // If we got a live frame, also silently refresh the cache in the background
-    // so the next cached read is as fresh as possible.
     if (liveFrame) {
       fetch(`${BACKEND}/scene`, {
         method: 'POST',
@@ -915,7 +963,7 @@ async function sendToTwin(text) {
       })
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d && d.scene) cachedScene = d.scene; })
-        .catch(() => {});   // silent — never blocks the conversation
+        .catch(() => {});
     }
 
     const res = await fetch(`${BACKEND}/chat`, {
@@ -925,13 +973,9 @@ async function sendToTwin(text) {
     });
 
     let data = {};
-    try {
-      data = await res.json();
-    } catch (_) {}
+    try { data = await res.json(); } catch (_) {}
 
-    if (!res.ok) {
-      throw new Error(data.error || (`Server ${res.status}`));
-    }
+    if (!res.ok) throw new Error(data.error || (`Server ${res.status}`));
 
     const reply =
       data.response && data.response.trim()
@@ -946,7 +990,6 @@ async function sendToTwin(text) {
     setState('idle');
   } finally {
     isProcessing = false;
-
     if (convoActive) {
       setTimeout(startListening, 350);
     } else {
@@ -979,6 +1022,7 @@ async function beginConversation() {
   els.convoBtn.textContent = '◼ End';
   els.convoBtn.classList.add('stop');
   startMicLoop();
+  startInterruptWatch(); // ← start watching for interruptions
   startListening();
 }
 
@@ -990,6 +1034,7 @@ function endConversation() {
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   stopCamera();
   stopMicLoop();
+  stopInterruptWatch(); // ← clean up interrupt watcher
   stopMouthAnim();
   els.convoBtn.textContent = '⏵ Begin';
   els.convoBtn.classList.remove('stop');
